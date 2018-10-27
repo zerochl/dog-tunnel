@@ -9,7 +9,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/vzex/dog-tunnel/common"
+	"dog-tunnel/common"
 )
 
 const (

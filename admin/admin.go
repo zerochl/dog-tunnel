@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/vzex/dog-tunnel/auth"
-	"github.com/vzex/dog-tunnel/common"
+	"dog-tunnel/auth"
+	"dog-tunnel/common"
 )
 
 var g_AdminCommands map[string]cmdHandler

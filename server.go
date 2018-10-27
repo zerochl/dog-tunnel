@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vzex/dog-tunnel/admin"
-	"github.com/vzex/dog-tunnel/auth"
-	"github.com/vzex/dog-tunnel/common"
+	"dog-tunnel/admin"
+	"dog-tunnel/auth"
+	"dog-tunnel/common"
 )
 
 var listenAddr = flag.String("addr", "0.0.0.0:8000", "server addr")
