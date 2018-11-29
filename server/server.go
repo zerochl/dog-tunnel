@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"crypto/tls"
@@ -14,9 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vzex/dog-tunnel/admin"
-	"github.com/vzex/dog-tunnel/auth"
-	"github.com/vzex/dog-tunnel/common"
+	"dog-tunnel/admin"
+	"dog-tunnel/auth"
+	"dog-tunnel/common"
 )
 
 var listenAddr = flag.String("addr", "0.0.0.0:8000", "server addr")
@@ -37,33 +37,47 @@ var db_host = flag.String("dbhost", "", "db host")
 var bUseDB = false
 
 func handleClient(conn net.Conn) {
+	// 记录client info
 	common.Conn2ClientInfo[conn] = &common.ClientInfo{Conn: conn, ClientMap: make(map[net.Conn]*common.Session), Id2Session: make(map[string]*common.Session), IsServer: false, Quit: make(chan bool), ResponseTime: time.Now().Unix()}
 	log.Println("client linked success", conn.RemoteAddr().String())
+	//TODO 监听时间，超过1800秒断开链接,此处有点莫名其妙
 	common.Conn2ClientInfo[conn].Loop()
+	// 执行读取操作，通过bufio的scanner进行读取,读取与写入有自定义格式
 	common.Read(conn, handleResponse)
+	// 如果当前读取完毕或者1800超时会断开连接
+	// 断开连接之后需要关闭与清理客户端连接
 	client, bHave := common.Conn2ClientInfo[conn]
 	if bHave {
+		// 往Quit channel写值，主动断开loop，并会断开conn
 		close(client.Quit)
 		if client.IsServer {
+			//TODO client是服务端
+			// 需要断开此服务端下面的所有客户端连接
 			for conn, session := range client.ClientMap {
 				conn.Close()
+				//TODO 此处需要仔细看，方法内直接return，很奇怪
 				common.RmId(client.ServerName, session.Id)
 			}
+			// 从map中删除某个item
 			delete(common.ServerName2Conn, client.ServerName)
 			log.Println("unregister service Name", client.ServerName)
 			if bUseDB {
+				// 如果使用DB，则设置用户状态为下线
 				user, _ := auth.GetUser(client.UserName)
 				if user != nil {
 					user.OnLogout()
 				}
 			}
 		} else {
+			// 当前为用户连接
+			// 获取client连接的server连接，并执行删除client连接的操作
 			common.GetServerInfoByConn(conn, func(server *common.ClientInfo) {
 				id := server.DelClient(conn)
 				log.Println("send quit")
 				common.Write(server.Conn, id, "clientquit", "")
 			}, func() {})
 		}
+		// 从Conn2ClientInfo中删除conn
 		delete(common.Conn2ClientInfo, conn)
 	}
 	conn.Close()
@@ -75,23 +89,36 @@ func udphandleClient(conn *net.UDPConn) {
 	for {
 
 		data := make([]byte, 1024)
-
+		//TODO 此处读取data并未使用
 		_, remoteAddr, err := conn.ReadFromUDP(data)
 		if err != nil {
 			log.Println("failed to read UDP msg because of ", err.Error())
 			break
 		}
-
+		//TODO 将地址原封不动返回？
 		conn.WriteToUDP([]byte(remoteAddr.String()), remoteAddr)
 	}
 }
-
+// 接收客户端发送过来的数据
 func handleResponse(conn net.Conn, id string, action string, content string) {
-	//log.Println("got", id, action, content)
+	log.Println("got", id, action, content)
+	// 更新保存的客户端信息接收response的时间
 	common.GetClientInfoByConn(conn, func(client *common.ClientInfo) {
 		client.ResponseTime = time.Now().Unix()
 	}, func() {
 	})
+	// action分为如下几个
+	// 1:init
+	// 2:tunnel_error
+	// 3:makeholefail
+	// 4:makeholeok
+	// 5:report_addrlist
+	// 6:success_bust_a
+	// 7:tunnel_close
+	// 8:tunnel_open
+	// 9:tunnel_msg_c
+	// 10:tunnel_msg_s
+	// 11:tunnel_close_s
 	switch action {
 	case "init":
 		clientInfoStr := content
@@ -400,7 +427,7 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 var err error
 var g_Master net.Listener
 
-func main() {
+func StartServer() {
 	flag.Parse()
 	if *bShowVersion {
 		fmt.Printf("%.2f\n", common.Version)
@@ -409,11 +436,13 @@ func main() {
 	common.Conn2ClientInfo = make(map[net.Conn]*common.ClientInfo)
 	common.ServerName2Conn = make(map[string]net.Conn)
 	common.Conn2Admin = make(map[net.Conn]*common.AdminInfo)
+	// 监听TCP端口
 	listener, err := net.Listen("tcp", *listenAddr)
 	if err != nil {
 		log.Println("cannot listen addr:" + err.Error())
 		return
 	}
+	// 是否使用ssl
 	if *bUseSSL {
 		config := &tls.Config{}
 		config.Certificates = make([]tls.Certificate, 1)
@@ -428,10 +457,12 @@ func main() {
 	}
 	go func() {
 		for {
+			// 监听Tcp端口调用
 			conn, err := g_Master.Accept()
 			if err != nil {
 				continue
 			}
+			// 收到链接请求异步执行客户端处理
 			go handleClient(conn)
 		}
 	}()
@@ -441,7 +472,7 @@ func main() {
 		log.Println("Can't resolve address: ", err)
 		return
 	}
-
+	// 监听UDP端口
 	udpconn, err := net.ListenUDP("udp", udpaddr)
 	if err != nil {
 		log.Println("Error UDP listening:", err)
@@ -453,7 +484,9 @@ func main() {
 	defer udpconn.Close()
 
 	go udphandleClient(udpconn)
+	// 如果提供DB则初始化DB连接
 	if *db_host != "" {
+		log.Println("init db")
 		err = auth.Init(*db_user, *db_pass, *db_host)
 		if err != nil {
 			log.Println("mysql client fail", err.Error())
@@ -463,7 +496,9 @@ func main() {
 		bUseDB = true
 	}
 	log.Println("master start success")
+	// 如果提供管理地址则开启管理地址初始化
 	if *adminAddr != "" {
+		log.Println("init admin server")
 		cert, key := "", ""
 		if *bUseHttps {
 			cert, key = *certFile, *keyFile
@@ -475,7 +510,9 @@ func main() {
 		}
 		log.Println("admin service start success")
 	}
+	// 创建信号接收channel，接收系统消息
 	c := make(chan os.Signal, 1)
+	// 接收结束程序信号
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 	log.Println("received signal,shutdown")

@@ -1,7 +1,10 @@
 package ikcp
 
 import "container/list"
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"log"
+)
 
 //=====================================================================
 //
@@ -71,6 +74,7 @@ func ikcp_decode16u(p []byte, w *uint16) []byte {
 /* encode 32 bits unsigned int (lsb) */
 func ikcp_encode32u(p []byte, l uint32) []byte {
 	binary.LittleEndian.PutUint32(p, l)
+	log.Println("p[4:]:", p[:4])
 	return p[4:]
 }
 
@@ -205,7 +209,7 @@ func Ikcp_create(conv uint32, user interface{}) *Ikcpcb {
 	kcp.incr = 0
 	kcp.probe = 0
 	kcp.mtu = IKCP_MTU_DEF
-	kcp.mss = kcp.mtu - IKCP_OVERHEAD
+	kcp.mss = kcp.mtu - IKCP_OVERHEAD // mtu - 24字节（kcp协议头部字节）= 可携带的数据大小
 
 	kcp.buffer = make([]byte, (kcp.mtu+IKCP_OVERHEAD)*3)
 	if kcp.buffer == nil {
@@ -391,7 +395,7 @@ func Ikcp_peeksize(kcp *Ikcpcb) int32 {
 }
 
 //---------------------------------------------------------------------
-// send data
+// send data buffer：需要发送的数据,_len:需要发送的长度？
 //---------------------------------------------------------------------
 func Ikcp_send(kcp *Ikcpcb, buffer []byte, _len int) int {
 	var seg *IKCPSEG
@@ -400,21 +404,22 @@ func Ikcp_send(kcp *Ikcpcb, buffer []byte, _len int) int {
 	if _len < 0 {
 		return -1
 	}
-
 	if _len <= int(kcp.mss) {
+		// 如果数据长度小于单次可携带的最大长度，则不需要分片
 		count = 1
 	} else {
+		// 携带数据过大，计算分片大小
+		// int计算会忽略余数，只要余数大于1就需要额外一个分片
 		count = (int32(_len) + int32(kcp.mss) - 1) / int32(kcp.mss)
 	}
-
+	// 分片不能大于255
 	if count > 255 {
 		return -2
 	}
-
+	// 此情况不会出现
 	if count == 0 {
 		count = 1
 	}
-
 	// fragment
 	for i = 0; i < count; i++ {
 		size := int32(kcp.mss)
@@ -426,18 +431,24 @@ func Ikcp_send(kcp *Ikcpcb, buffer []byte, _len int) int {
 			return -2
 		}
 		if buffer != nil && _len > 0 {
+			// 每次循环会切除上一个分片的内容，所以每次可以直接buffer[:size]获取当前分片内容
 			copy(seg.data, buffer[:size])
 		}
 		seg._len = uint32(size)
+		// frg是倒序,最后一个为0
 		seg.frg = uint32(count - i - 1)
+		// 发送分片到发送队列
 		kcp.snd_queue.PushBack(seg)
 		//if kcp.user[0] == 0 {
 		//fmt.Println(kcp.user, "send", kcp.snd_queue.Len())
 		//}
+		// 发送队列数加1
 		kcp.nsnd_que++
 		if buffer != nil {
+			// 裁剪buffer
 			buffer = buffer[size:]
 		}
+		// 裁剪数据length
 		_len -= int(size)
 	}
 
@@ -805,6 +816,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 
 	// 'Ikcp_update' haven't been called.
 	if kcp.updated == 0 {
+		// 没有刷新过不需要执行flush
 		return
 	}
 
@@ -820,6 +832,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 	// flush acknowledges
 	size = 0
 	count = int32(kcp.ackcount)
+	log.Println("count:", count, ";conv:", kcp.user)
 	for i = 0; i < count; i++ {
 		//size = int32(ptr - buffer)
 		if size+int32(IKCP_OVERHEAD) > int32(kcp.mtu) {
@@ -827,8 +840,12 @@ func Ikcp_flush(kcp *Ikcpcb) {
 			ptr = buffer
 			size = 0
 		}
+		// 获取acklist中第i个sn与ts
 		ikcp_ack_get(kcp, i, &seg.sn, &seg.ts)
+		log.Println("ptr :", ptr)
 		ptr = ikcp_encode_seg(ptr, &seg)
+		log.Println("ptr1:", ptr)
+		log.Println("kcp.:", kcp.buffer)
 		size += 24
 	}
 
@@ -1031,14 +1048,13 @@ func Ikcp_update(kcp *Ikcpcb, current uint32) {
 	var slap int32
 
 	kcp.current = current
-
 	if kcp.updated == 0 {
+		// 第一次刷新记录一下
 		kcp.updated = 1
 		kcp.ts_flush = kcp.current
 	}
 
 	slap = _itimediff(kcp.current, kcp.ts_flush)
-
 	if slap >= 10000 || slap < -10000 {
 		kcp.ts_flush = kcp.current
 		slap = 0

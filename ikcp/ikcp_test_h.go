@@ -88,8 +88,11 @@ func (p *LatencySimulator)recv(peer int, data []byte, maxsize int) int32 {
         }
         pkt := it.Value.(*DelayPacket)
         p.current = iclock()
+        // 时间异常
         if (p.current < pkt.ts()) { return -2 }
+        // 包的大小超出最大大小
         if (maxsize < pkt.size()) { return -3 }
+        // 消费掉此包-移除
         if (peer == 0) {
                 p.p21.Remove(it)
         }	else {

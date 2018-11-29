@@ -167,11 +167,13 @@ func (s *ClientInfo) AddClient(conn net.Conn, clientInfo ClientSetting) {
 
 func (s *ClientInfo) Loop() {
 	go func() {
+		// 将会每隔10秒在checkChan写入时间
 		checkChan := time.NewTicker(10 * time.Second)
 	out:
 		for {
 			select {
 			case <-checkChan.C:
+				//TODO 链接保持1800秒？超出主动断开？
 				if time.Now().Unix()-s.ResponseTime > 1800 {
 					log.Println("timeout,client loop quit", s.Conn.RemoteAddr().String())
 					break out

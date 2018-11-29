@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"bufio"
@@ -22,8 +22,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vzex/dog-tunnel/common"
-	"github.com/vzex/dog-tunnel/nat"
+	"dog-tunnel/common"
+	"dog-tunnel/nat"
 )
 
 var accessKey = flag.String("key", "", "please get an accesskey")

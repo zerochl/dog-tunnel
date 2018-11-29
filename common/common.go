@@ -31,6 +31,7 @@ type ClientSetting struct {
 var encodingData []byte = []byte("bertdfvuifu4359c")
 var encodingLen int = 16
 var headerLen int = 4
+var hashPswSufix = "testzc222sf"
 
 func init() {
 	encodingLen = len(encodingData)
@@ -89,10 +90,13 @@ func Read(conn net.Conn, callback ReadCallBack) {
 		}
 		var l1, l2, l3 uint32
 		buf := bytes.NewReader(data)
-		binary.Read(buf, binary.LittleEndian, &l1)
+		// 获取头部12个字节大小
 		binary.Read(buf, binary.LittleEndian, &l2)
+		binary.Read(buf, binary.LittleEndian, &l1)
 		binary.Read(buf, binary.LittleEndian, &l3)
+		// 获取tail尾部长度
 		tail := l - headerLen*3
+		// 头部大小为l1+l2+l3
 		lhead := l1 + l2 + l3
 		if lhead > 1048576 {
 			conn.Close()
@@ -127,7 +131,7 @@ func Md5(msg string) string {
 }
 
 func HashPasswd(pass string) string {
-	return Md5(pass + "testzc222sf")
+	return Md5(pass + hashPswSufix)
 }
 
 type _reuseTbl struct {
