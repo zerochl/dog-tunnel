@@ -519,9 +519,11 @@ func ikcp_parse_fastack(kcp *Ikcpcb, sn uint32) {
 
 	for p := kcp.snd_buf.Front(); p != nil; p = p.Next() {
 		seg := p.Value.(*IKCPSEG)
+		// 当前确认的SN数大于待发送缓存中的则表明被跳过
 		if _itimediff(sn, seg.sn) < 0 {
 			break
 		} else if sn != seg.sn {
+			// 跳过次数计数加1
 			seg.fastack++
 		}
 	}
