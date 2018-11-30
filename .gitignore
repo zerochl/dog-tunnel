@@ -1,3 +1,15 @@
 dtunnel
 dtunnel_s
 /bin/
+*.iml
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+/.idea
+**/*.iml
+**/build
+**/report
