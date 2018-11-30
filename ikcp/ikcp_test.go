@@ -40,7 +40,7 @@ func test(mode int) {
 	// 创建模拟网络：丢包率10%，Rtt 60ms~125ms
 	// RTT 报文发出到接收反馈的时间差
 	vnet = &LatencySimulator{}
-	vnet.Init(10, 60, 125, 1000)
+	vnet.Init(90, 60, 125, 1000)
 
 	// 创建两个端点的 kcp对象，第一个参数 conv是会话编号，同一个会话需要相同
 	// 最后一个是 user参数，用来传递标识
@@ -81,8 +81,8 @@ func test(mode int) {
 		// 第三个参数 interval为内部处理时钟，默认设置为 10ms
 		// 第四个参数 resend为快速重传指标，设置为2
 		// 第五个参数 为是否禁用常规流控，这里禁止
-		Ikcp_nodelay(kcp1, 1, 10, 2, 1)
-		Ikcp_nodelay(kcp2, 1, 10, 2, 1)
+		Ikcp_nodelay(kcp1, 1, 10, 1, 1)
+		Ikcp_nodelay(kcp2, 1, 10, 1, 1)
 	}
 
 	var buffer []byte = make([]byte, 2000)
@@ -103,19 +103,19 @@ func test(mode int) {
 			binary.Write(buf, binary.LittleEndian, uint32(index))
 			index++
 			binary.Write(buf, binary.LittleEndian, uint64(current))
-			log.Println("send data current:", current, ";slap:", slap, ";index:", index, ";buf.Bytes() length:", len(buf.Bytes()))
+			//log.Println("send data current:", current, ";slap:", slap, ";index:", index, ";buf.Bytes() length:", len(buf.Bytes()))
 			// 发送上层协议包
 			Ikcp_send(kcp1, buf.Bytes(), 8)
 			//println("now", iclock())
 		}
-		log.Println("next one")
+		//log.Println("next one")
 		// 处理虚拟网络：检测是否有udp包从p1->p2
 		for {
 			hr = vnet.recv(1, buffer, 2000)
 			if (hr < 0) {
 				break
 			}
-			log.Println("receive p1->p2 hr:", hr)
+			//log.Println("receive p1->p2 hr:", hr)
 			// 如果 p2收到udp，则作为下层协议输入到kcp2
 			Ikcp_input(kcp2, buffer, int(hr))
 		}
@@ -126,7 +126,7 @@ func test(mode int) {
 			if (hr < 0) {
 				break
 			}
-			log.Println("receive p2->p1 hr:", hr)
+			//log.Println("receive p2->p1 hr:", hr)
 			// 如果 p1收到udp，则作为下层协议输入到kcp1
 			Ikcp_input(kcp1, buffer, int(hr))
 			//println("@@@@", hr, r)
@@ -139,7 +139,7 @@ func test(mode int) {
 			if (hr < 0) {
 				break
 			}
-			log.Println("receive kcp2 hr:", hr)
+			//log.Println("receive kcp2 hr:", hr)
 			// 如果收到包就回射
 			buf := bytes.NewReader(buffer)
 			var sn uint32
@@ -155,7 +155,7 @@ func test(mode int) {
 			if (hr < 0) {
 				break
 			}
-			log.Println("receive kcp1 hr:", hr)
+			//log.Println("receive kcp1 hr:", hr)
 			var sn uint32
 			var ts, rtt uint32
 			binary.Read(buf, binary.LittleEndian, &sn)

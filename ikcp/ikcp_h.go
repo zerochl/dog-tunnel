@@ -23,6 +23,7 @@ type IKCPCB struct {
 	ts_recent, ts_lastack, ssthresh        uint32
 	rx_rttval, rx_srtt, rx_rto, rx_minrto  uint32
 	snd_wnd, rcv_wnd, rmt_wnd, cwnd, probe uint32
+	// xmit:kcp总重传次数
 	current, interval, ts_flush, xmit      uint32
 	nrcv_buf, nsnd_buf                     uint32
 	nrcv_que, nsnd_que                     uint32

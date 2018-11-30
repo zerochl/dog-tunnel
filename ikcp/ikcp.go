@@ -74,7 +74,6 @@ func ikcp_decode16u(p []byte, w *uint16) []byte {
 /* encode 32 bits unsigned int (lsb) */
 func ikcp_encode32u(p []byte, l uint32) []byte {
 	binary.LittleEndian.PutUint32(p, l)
-	log.Println("p[4:]:", p[:4])
 	return p[4:]
 }
 
@@ -832,7 +831,6 @@ func Ikcp_flush(kcp *Ikcpcb) {
 	// flush acknowledges
 	size = 0
 	count = int32(kcp.ackcount)
-	log.Println("count:", count, ";conv:", kcp.user)
 	for i = 0; i < count; i++ {
 		//size = int32(ptr - buffer)
 		if size+int32(IKCP_OVERHEAD) > int32(kcp.mtu) {
@@ -842,16 +840,13 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		}
 		// 获取acklist中第i个sn与ts
 		ikcp_ack_get(kcp, i, &seg.sn, &seg.ts)
-		log.Println("ptr :", ptr)
 		ptr = ikcp_encode_seg(ptr, &seg)
-		log.Println("ptr1:", ptr)
-		log.Println("kcp.:", kcp.buffer)
 		size += 24
 	}
 
 	kcp.ackcount = 0
 
-	// probe window size (if remote window size equals zero)
+	// probe window size (if remote window size equals zero),探测窗口大小（如果远程窗口大小等于零）
 	if kcp.rmt_wnd == 0 {
 		if kcp.probe_wait == 0 {
 			kcp.probe_wait = IKCP_PROBE_INIT
@@ -874,7 +869,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		kcp.probe_wait = 0
 	}
 
-	// flush window probing commands
+	// flush window probing commands, 刷新窗口探测命令
 	if (kcp.probe & IKCP_ASK_SEND) != 0 {
 		seg.cmd = IKCP_CMD_WASK
 		if size+int32(IKCP_OVERHEAD) > int32(kcp.mtu) {
@@ -886,31 +881,33 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		size += 24
 	}
 
-	// flush window probing commands
-	if (kcp.probe & IKCP_ASK_TELL) != 0 {
-		seg.cmd = IKCP_CMD_WINS
-		if size+int32(IKCP_OVERHEAD) > int32(kcp.mtu) {
-			ikcp_output(kcp, buffer, size)
-			ptr = buffer
-			size = 0
-		}
-		ptr = ikcp_encode_seg(ptr, &seg)
-		size += 24
-	}
+	//// flush window probing commands
+	//if (kcp.probe & IKCP_ASK_TELL) != 0 {
+	//	seg.cmd = IKCP_CMD_WINS
+	//	if size+int32(IKCP_OVERHEAD) > int32(kcp.mtu) {
+	//		ikcp_output(kcp, buffer, size)
+	//		ptr = buffer
+	//		size = 0
+	//	}
+	//	ptr = ikcp_encode_seg(ptr, &seg)
+	//	size += 24
+	//}
 
 	kcp.probe = 0
 
-	// calculate window size
+	// calculate window size,计算窗口大小
+	// 取最小值
 	cwnd = _imin_(kcp.snd_wnd, kcp.rmt_wnd)
 	if kcp.nocwnd == 0 {
 		cwnd = _imin_(kcp.cwnd, cwnd)
 	}
 
-	// move data from snd_queue to snd_buf
-	////println("check",kcp.snd_queue.Len())
+	// move data from snd_queue to snd_buf,移动数据从发送队列到发送缓存,消费send queue
+	println("check",kcp.snd_queue.Len())
 	for p := kcp.snd_queue.Front(); p != nil; {
 		////println("debug check:", t, p.Next(), kcp.snd_nxt, kcp.snd_una, cwnd, _itimediff(kcp.snd_nxt, kcp.snd_una + cwnd))
 		////fmt.Printf("timediff %d,%d,%d,%d\n", kcp.snd_nxt, kcp.snd_una, cwnd, _itimediff(kcp.snd_nxt, kcp.snd_una + cwnd));
+		// 下一个要发送的序列号-(待确认的序列号+拥塞窗口),如果值大于0，表明要发送的内容不在队列中
 		if _itimediff(kcp.snd_nxt, kcp.snd_una+cwnd) >= 0 {
 			//if kcp.user[0] == 0 {
 			////fmt.Println("=======", kcp.snd_nxt, kcp.snd_una, cwnd)
@@ -919,9 +916,9 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		}
 		newseg := p.Value.(*IKCPSEG)
 		q := p.Next()
+		// 发送队列中移除P
 		kcp.snd_queue.Remove(p)
 		p = q
-		kcp.snd_buf.PushBack(newseg)
 		//if kcp.user[0] == 0 {
 		//println("debug check2:", t, kcp.snd_queue.Len(), kcp.snd_buf.Len(), kcp.nsnd_que)
 		//}
@@ -939,40 +936,57 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		newseg.rto = kcp.rx_rto
 		newseg.fastack = 0
 		newseg.xmit = 0
+		kcp.snd_buf.PushBack(newseg)
 	}
 
 	// calculate resent
 	resent = uint32(kcp.fastresend)
 	if kcp.fastresend <= 0 {
+		// 快速重传设置为0，则表明不使用快速重传，直接设置resent值为int 32最大值
 		resent = 0xffffffff
 	}
+	// 重传超时时间,rx_rto减去三位
 	rtomin = (kcp.rx_rto >> 3)
 	if kcp.nodelay != 0 {
 		rtomin = 0
 	}
-
-	// flush data segments
+	// flush data segments 消费send buffer
 	for p := kcp.snd_buf.Front(); p != nil; p = p.Next() {
 		////println("debug loop", a, kcp.snd_buf.Len())
 		segment := p.Value.(*IKCPSEG)
 		needsend := 0
+		log.Println("segment.xmit:", segment.xmit, ";_itimediff(current, segment.resendts):", _itimediff(current, segment.resendts), ";segment.fastack >= resent:", (segment.fastack >= resent))
+		// 传送策略
 		if segment.xmit == 0 {
+			// 没有传送过的需要传送
 			needsend = 1
 			segment.xmit++
 			segment.rto = kcp.rx_rto
+			// 设置初始重传时间, 如果此次传送失败，那么下次需要在此时间之后重传
 			segment.resendts = current + segment.rto + rtomin
 		} else if _itimediff(current, segment.resendts) >= 0 {
+			// 当前时间大于需要重传的时间, 此时需要重传
 			needsend = 1
 			segment.xmit++
+			// 触发了重传，所以记录总得重传次数
 			kcp.xmit++
 			if kcp.nodelay == 0 {
+				// 下一次添加一倍等待
 				segment.rto += kcp.rx_rto
 			} else {
+				// 下一次添加半倍等待
 				segment.rto += kcp.rx_rto / 2
 			}
+			if segment.rto >= kcp.rx_rto * 2 {
+				// 如果连续多次失败，导致超时时间变成了原设定时间的两倍，那么设定超时时间恒定为两倍
+				segment.rto = kcp.rx_rto * 2
+				log.Println("触发恒定两倍")
+			}
+			log.Println("segment.rto:", segment.rto, ";kcp.rx_rto:", kcp.rx_rto)
 			segment.resendts = current + segment.rto
 			lost = 1
 		} else if segment.fastack >= resent {
+			log.Println("segment.fastack:", segment.fastack)
 			needsend = 1
 			segment.xmit++
 			segment.fastack = 0
