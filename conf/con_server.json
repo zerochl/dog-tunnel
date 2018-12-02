@@ -1,0 +1,14 @@
+{
+  "listen_addr":"",
+  "listen_addr_udp":"",
+  "b_use_ssl":"",
+  "b_use_https":"",
+  "cert_file":"",
+  "key_file":"",
+  "admin_addr":"",
+  "b_show_version":"",
+  "b_replace_reg":"",
+  "db_user":"",
+  "db_pass":"",
+  "db_host":""
+}

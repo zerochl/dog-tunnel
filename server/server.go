@@ -36,6 +36,101 @@ var db_host = flag.String("dbhost", "", "db host")
 
 var bUseDB = false
 
+var err error
+var g_Master net.Listener
+
+func StartServer() {
+	flag.Parse()
+	if *bShowVersion {
+		fmt.Printf("%.2f\n", common.Version)
+		return
+	}
+	common.Conn2ClientInfo = make(map[net.Conn]*common.ClientInfo)
+	common.ServerName2Conn = make(map[string]net.Conn)
+	common.Conn2Admin = make(map[net.Conn]*common.AdminInfo)
+	// 监听TCP端口
+	listener, err := net.Listen("tcp", *listenAddr)
+	if err != nil {
+		log.Println("cannot listen addr:" + err.Error())
+		return
+	}
+	// 是否使用ssl
+	if *bUseSSL {
+		config := &tls.Config{}
+		config.Certificates = make([]tls.Certificate, 1)
+		config.Certificates[0], err = tls.LoadX509KeyPair(*certFile, *keyFile)
+		if err != nil {
+			log.Println("load key file error", err.Error())
+			return
+		}
+		g_Master = tls.NewListener(listener, config)
+	} else {
+		g_Master = listener
+	}
+	go func() {
+		for {
+			// 监听Tcp端口调用
+			conn, err := g_Master.Accept()
+			if err != nil {
+				continue
+			}
+			// 收到链接请求异步执行客户端处理
+			go handleClient(conn)
+		}
+	}()
+
+	udpaddr, err := net.ResolveUDPAddr("udp", *listenAddrUDP)
+	if err != nil {
+		log.Println("Can't resolve address: ", err)
+		return
+	}
+	// 监听UDP端口
+	udpconn, err := net.ListenUDP("udp", udpaddr)
+	if err != nil {
+		log.Println("Error UDP listening:", err)
+		return
+	}
+
+	log.Println("listenAdd: ", *listenAddrUDP)
+
+	defer udpconn.Close()
+
+	go udphandleClient(udpconn)
+	// 如果提供DB则初始化DB连接
+	if *db_host != "" {
+		log.Println("init db")
+		err = auth.Init(*db_user, *db_pass, *db_host)
+		if err != nil {
+			log.Println("mysql client fail", err.Error())
+			return
+		}
+		defer auth.DeInit()
+		bUseDB = true
+	}
+	log.Println("master start success")
+	// 如果提供管理地址则开启管理地址初始化
+	if *adminAddr != "" {
+		log.Println("init admin server")
+		cert, key := "", ""
+		if *bUseHttps {
+			cert, key = *certFile, *keyFile
+		}
+		err := admin.InitAdminPort(*adminAddr, cert, key)
+		if err != nil {
+			log.Println("admin service start fail", err.Error())
+			return
+		}
+		log.Println("admin service start success")
+	}
+	// 创建信号接收channel，接收系统消息
+	c := make(chan os.Signal, 1)
+	// 接收结束程序信号
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
+	log.Println("received signal,shutdown")
+	shutdown()
+}
+
 func handleClient(conn net.Conn) {
 	// 记录client info
 	common.Conn2ClientInfo[conn] = &common.ClientInfo{Conn: conn, ClientMap: make(map[net.Conn]*common.Session), Id2Session: make(map[string]*common.Session), IsServer: false, Quit: make(chan bool), ResponseTime: time.Now().Unix()}
@@ -422,101 +517,6 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 		}, func() {
 		})
 	}
-}
-
-var err error
-var g_Master net.Listener
-
-func StartServer() {
-	flag.Parse()
-	if *bShowVersion {
-		fmt.Printf("%.2f\n", common.Version)
-		return
-	}
-	common.Conn2ClientInfo = make(map[net.Conn]*common.ClientInfo)
-	common.ServerName2Conn = make(map[string]net.Conn)
-	common.Conn2Admin = make(map[net.Conn]*common.AdminInfo)
-	// 监听TCP端口
-	listener, err := net.Listen("tcp", *listenAddr)
-	if err != nil {
-		log.Println("cannot listen addr:" + err.Error())
-		return
-	}
-	// 是否使用ssl
-	if *bUseSSL {
-		config := &tls.Config{}
-		config.Certificates = make([]tls.Certificate, 1)
-		config.Certificates[0], err = tls.LoadX509KeyPair(*certFile, *keyFile)
-		if err != nil {
-			log.Println("load key file error", err.Error())
-			return
-		}
-		g_Master = tls.NewListener(listener, config)
-	} else {
-		g_Master = listener
-	}
-	go func() {
-		for {
-			// 监听Tcp端口调用
-			conn, err := g_Master.Accept()
-			if err != nil {
-				continue
-			}
-			// 收到链接请求异步执行客户端处理
-			go handleClient(conn)
-		}
-	}()
-
-	udpaddr, err := net.ResolveUDPAddr("udp", *listenAddrUDP)
-	if err != nil {
-		log.Println("Can't resolve address: ", err)
-		return
-	}
-	// 监听UDP端口
-	udpconn, err := net.ListenUDP("udp", udpaddr)
-	if err != nil {
-		log.Println("Error UDP listening:", err)
-		return
-	}
-
-	log.Println("listenAdd: ", *listenAddrUDP)
-
-	defer udpconn.Close()
-
-	go udphandleClient(udpconn)
-	// 如果提供DB则初始化DB连接
-	if *db_host != "" {
-		log.Println("init db")
-		err = auth.Init(*db_user, *db_pass, *db_host)
-		if err != nil {
-			log.Println("mysql client fail", err.Error())
-			return
-		}
-		defer auth.DeInit()
-		bUseDB = true
-	}
-	log.Println("master start success")
-	// 如果提供管理地址则开启管理地址初始化
-	if *adminAddr != "" {
-		log.Println("init admin server")
-		cert, key := "", ""
-		if *bUseHttps {
-			cert, key = *certFile, *keyFile
-		}
-		err := admin.InitAdminPort(*adminAddr, cert, key)
-		if err != nil {
-			log.Println("admin service start fail", err.Error())
-			return
-		}
-		log.Println("admin service start success")
-	}
-	// 创建信号接收channel，接收系统消息
-	c := make(chan os.Signal, 1)
-	// 接收结束程序信号
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
-	log.Println("received signal,shutdown")
-	shutdown()
 }
 
 func shutdown() {

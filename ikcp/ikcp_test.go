@@ -40,7 +40,7 @@ func test(mode int) {
 	// 创建模拟网络：丢包率10%，Rtt 60ms~125ms
 	// RTT 报文发出到接收反馈的时间差
 	vnet = &LatencySimulator{}
-	vnet.Init(90, 60, 125, 1000)
+	vnet.Init(80, 60, 125, 1000)
 
 	// 创建两个端点的 kcp对象，第一个参数 conv是会话编号，同一个会话需要相同
 	// 最后一个是 user参数，用来传递标识

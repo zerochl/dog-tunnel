@@ -54,6 +54,7 @@ var dnsCacheNum = flag.Int("dnscache", 0, "if > 0, dns will cache xx minutes")
 var aesKey *cipher.Block
 
 var remoteConn net.Conn
+// cliengType:0,serverName 不为空，1：linkName不为空
 var clientType = -1
 
 type dnsInfo struct {
@@ -61,6 +62,171 @@ type dnsInfo struct {
 	Status              string
 	Queue               []*dnsQueryReq
 	overTime, cacheTime int64
+}
+
+var g_ClientMap map[string]*Client
+var g_ClientMapKey map[string]*cipher.Block
+var g_Id2UDPSession map[string]*UDPMakeSession
+var markName = ""
+var bForceQuit = false
+
+func StartClient() {
+	flag.Parse()
+	checkDns = make(chan *dnsQueryReq)
+	checkDnsRes = make(chan *dnsQueryBack)
+	//TODO 随时更新DNS？
+	// 此方法内部依赖checkDns与checkDnsRes管道写入
+	go dnsLoop()
+	if *bShowVersion {
+		fmt.Printf("%.2f\n", common.Version)
+		return
+	}
+	if !*bVerbose {
+		log.SetOutput(ioutil.Discard)
+	}
+	//TODO dataShards、parityShards不清楚是什么
+	if *dataShards < 0 || *dataShards >= 128 {
+		println("-ds should in [0-127]")
+		return
+	}
+	if *parityShards < 0 || *parityShards >= 128 {
+		println("-ds should in [0-127]")
+		return
+	}
+	if *serveName == "" && *linkName == "" {
+		println("you must assign reg or link")
+		return
+	}
+	if *serveName != "" && *linkName != "" {
+		println("you must assign reg or link, not both of them")
+		return
+	}
+	if *localAddr == "" {
+		println("you must assign the local addr")
+		return
+	}
+	// 有无server name决定了client的类型？
+	if *serveName != "" {
+		clientType = 0
+	} else {
+		clientType = 1
+	}
+	if *bEncrypt {
+		if clientType != 1 {
+			println("only link size need encrypt")
+			return
+		}
+	}
+	go func() {
+		// 监听kill系统命令
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+		n := 0
+		for {
+			<-c
+			log.Println("received signal,shutdown")
+			bForceQuit = true
+			if remoteConn != nil {
+				remoteConn.Close()
+			}
+			// 连续接收到了多次kill请求，直接exit程序
+			n++
+			if n > 5 {
+				log.Println("force shutdown")
+				os.Exit(-1)
+			}
+		}
+	}()
+	// return true:程序已经关闭
+	loop := func() bool {
+		if bForceQuit {
+			// 被标记为关闭直接return true
+			return true
+		}
+		g_ClientMap = make(map[string]*Client)
+		g_ClientMapKey = make(map[string]*cipher.Block)
+		g_Id2UDPSession = make(map[string]*UDPMakeSession)
+		//var err error
+		if *bUseSSL {
+			_remoteConn, err := tls.Dial("tcp", *serverAddr, &tls.Config{InsecureSkipVerify: true})
+			if err != nil {
+				println("connect remote err:" + err.Error())
+				return false
+			}
+			remoteConn = net.Conn(_remoteConn)
+		} else {
+			_remoteConn, err := net.DialTimeout("tcp", *serverAddr, 10*time.Second)
+			if err != nil {
+				println("connect remote err:" + err.Error())
+				return false
+			}
+			remoteConn = _remoteConn
+		}
+		println("connect to server succeed")
+		// 异步执行init准备与发送
+		go connect()
+		// quit channel
+		q := make(chan bool)
+		// 维持心跳
+		go func() {
+			// 每隔10秒钟执行心跳，借助time ticker来完成定时操作
+			//TODO 可封装time ticker来实现定时任务
+			c := time.NewTicker(time.Second * 10)
+			out:
+			for {
+				select {
+				case <-c.C:
+					if remoteConn != nil {
+						common.Write(remoteConn, "-1", "ping", "")
+					}
+				case <-q:
+					break out
+				}
+			}
+			c.Stop()
+		}()
+		// 开始循环读取远程conn的数据
+		common.Read(remoteConn, handleResponse)
+		// 读取完毕，关闭心跳
+		q <- true
+		// 关闭所有client,p2p链接的client
+		for clientId, client := range g_ClientMap {
+			log.Println("client shutdown", clientId)
+			client.Quit()
+		}
+		//TODO 关闭udp？
+		for _, session := range g_Id2UDPSession {
+			if session.engine != nil {
+				session.engine.Fail()
+			}
+		}
+		// 关闭与服务器的链接
+		if remoteConn != nil {
+			remoteConn.Close()
+		}
+		// 如果是本地断开链接则返回true
+		if bForceQuit {
+			return true
+		}
+		// 否则返回false，如果clientType==0那么会在此执行loop,重新与服务器建立链接
+		return false
+	}
+	if clientType == 0 {
+		// serverName不为空
+		for {
+			// 如果被return true则结束循环
+			if loop() {
+				break
+			}
+			// 10秒间隔循环
+			time.Sleep(10 * time.Second)
+		}
+	} else {
+		// linkName不为空
+		loop()
+	}
+	// 程序执行到此处说明已经结束了，不管是否有go routine在等待管道都会关闭程序
+	log.Println("service shutdown")
 }
 
 func (u *dnsInfo) IsAlive() bool {
@@ -80,12 +246,6 @@ func (u *dnsInfo) SetCacheTime(t int64) {
 	u.overTime = t + time.Now().Unix()
 }
 func (u *dnsInfo) DeInit() {}
-
-var g_ClientMap map[string]*Client
-var g_ClientMapKey map[string]*cipher.Block
-var g_Id2UDPSession map[string]*UDPMakeSession
-var markName = ""
-var bForceQuit = false
 
 func isCommonSessionId(id string) bool {
 	return id == "common"
@@ -478,150 +638,14 @@ func loadSettings(info *fileSetting) error {
 	return nil
 }
 
-func main() {
-	flag.Parse()
-	checkDns = make(chan *dnsQueryReq)
-	checkDnsRes = make(chan *dnsQueryBack)
-	go dnsLoop()
-	if *bShowVersion {
-		fmt.Printf("%.2f\n", common.Version)
-		return
-	}
-	if !*bVerbose {
-		log.SetOutput(ioutil.Discard)
-	}
-	if *dataShards < 0 || *dataShards >= 128 {
-		println("-ds should in [0-127]")
-		return
-	}
-	if *parityShards < 0 || *parityShards >= 128 {
-		println("-ds should in [0-127]")
-		return
-	}
-	if *serveName == "" && *linkName == "" {
-		println("you must assign reg or link")
-		return
-	}
-	if *serveName != "" && *linkName != "" {
-		println("you must assign reg or link, not both of them")
-		return
-	}
-	if *localAddr == "" {
-		println("you must assign the local addr")
-		return
-	}
-	if *serveName != "" {
-		clientType = 0
-	} else {
-		clientType = 1
-	}
-	if *bEncrypt {
-		if clientType != 1 {
-			println("only link size need encrypt")
-			return
-		}
-	}
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-		n := 0
-		for {
-			<-c
-			log.Println("received signal,shutdown")
-			bForceQuit = true
-			if remoteConn != nil {
-				remoteConn.Close()
-			}
-			n++
-			if n > 5 {
-				log.Println("force shutdown")
-				os.Exit(-1)
-			}
-		}
-	}()
-
-	loop := func() bool {
-		if bForceQuit {
-			return true
-		}
-		g_ClientMap = make(map[string]*Client)
-		g_ClientMapKey = make(map[string]*cipher.Block)
-		g_Id2UDPSession = make(map[string]*UDPMakeSession)
-		//var err error
-		if *bUseSSL {
-			_remoteConn, err := tls.Dial("tcp", *serverAddr, &tls.Config{InsecureSkipVerify: true})
-			if err != nil {
-				println("connect remote err:" + err.Error())
-				return false
-			}
-			remoteConn = net.Conn(_remoteConn)
-		} else {
-			_remoteConn, err := net.DialTimeout("tcp", *serverAddr, 10*time.Second)
-			if err != nil {
-				println("connect remote err:" + err.Error())
-				return false
-			}
-			remoteConn = _remoteConn
-		}
-		println("connect to server succeed")
-		go connect()
-		q := make(chan bool)
-		go func() {
-			c := time.NewTicker(time.Second * 10)
-		out:
-			for {
-				select {
-				case <-c.C:
-					if remoteConn != nil {
-						common.Write(remoteConn, "-1", "ping", "")
-					}
-				case <-q:
-					break out
-				}
-			}
-			c.Stop()
-		}()
-
-		common.Read(remoteConn, handleResponse)
-		q <- true
-		for clientId, client := range g_ClientMap {
-			log.Println("client shutdown", clientId)
-			client.Quit()
-		}
-
-		for _, session := range g_Id2UDPSession {
-			if session.engine != nil {
-				session.engine.Fail()
-			}
-		}
-		if remoteConn != nil {
-			remoteConn.Close()
-		}
-		if bForceQuit {
-			return true
-		}
-		return false
-	}
-	if clientType == 0 {
-		for {
-			if loop() {
-				break
-			}
-			time.Sleep(10 * time.Second)
-		}
-	} else {
-		loop()
-	}
-	log.Println("service shutdown")
-}
-
 func connect() {
 	if *pipeNum <= 0 {
 		*pipeNum = 1
 	}
 	clientInfo := common.ClientSetting{Version: common.Version, Delay: *delayTime, Mode: *clientMode, PipeNum: *pipeNum, AccessKey: *accessKey, ClientKey: *clientKey, AesKey: ""}
 	if *bEncrypt {
-		clientInfo.AesKey = string([]byte(fmt.Sprintf("asd4%d%d", int32(time.Now().Unix()), (rand.Intn(100000) + 100)))[:16])
+		clientInfo.AesKey = string([]byte(fmt.Sprintf("asd4%d%d", int32(time.Now().Unix()),
+			(rand.New(rand.NewSource(time.Now().UnixNano())).Intn(100000) + 100)))[:16])
 		log.Println("debug aeskey", clientInfo.AesKey)
 		key, _ := aes.NewCipher([]byte(clientInfo.AesKey))
 		aesKey = &key

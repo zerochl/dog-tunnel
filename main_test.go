@@ -8,7 +8,17 @@ import (
 	"bytes"
 	"io"
 	"dog-tunnel/common"
+	"fmt"
+	"time"
+	"math/rand"
 )
+
+func TestAESKey(t *testing.T)  {
+	log.Println("time.Now().Unix():", time.Now().Unix())
+	randTest := (rand.New(rand.NewSource(time.Now().UnixNano())).Intn(100000) + 100)
+	log.Println("(rand.Intn(100000) + 100):", randTest)
+	log.Println(string([]byte(fmt.Sprintf("asd4%d%d", int32(time.Now().Unix()), randTest))[:16]))
+}
 
 func TestTest(t *testing.T)  {
 	//var b [8]byte

@@ -58,6 +58,7 @@ func (p *LatencySimulator) send(peer int, data []byte, size int) int {
         }	else {
                 rnd = p.r21.Intn(100)
         }
+        // 模拟丢包，100内的随机数
         //println("!!!!!!!!!!!!!!!!!!!!", rnd, p.lostrate, peer)
         if (rnd < p.lostrate) { return 0}
         pkt := &DelayPacket{}

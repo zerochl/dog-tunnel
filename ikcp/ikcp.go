@@ -3,7 +3,6 @@ package ikcp
 import "container/list"
 import (
 	"encoding/binary"
-	"log"
 )
 
 //=====================================================================
@@ -953,11 +952,12 @@ func Ikcp_flush(kcp *Ikcpcb) {
 		rtomin = 0
 	}
 	// flush data segments 消费send buffer
+	//log.Println("start for")
 	for p := kcp.snd_buf.Front(); p != nil; p = p.Next() {
 		////println("debug loop", a, kcp.snd_buf.Len())
 		segment := p.Value.(*IKCPSEG)
 		needsend := 0
-		log.Println("segment.xmit:", segment.xmit, ";_itimediff(current, segment.resendts):", _itimediff(current, segment.resendts), ";segment.fastack >= resent:", (segment.fastack >= resent))
+		//log.Println("segment.xmit:", segment.xmit, ";_itimediff(current, segment.resendts):", _itimediff(current, segment.resendts), ";segment.fastack >= resent:", (segment.fastack >= resent))
 		// 传送策略
 		if segment.xmit == 0 {
 			// 没有传送过的需要传送
@@ -982,20 +982,25 @@ func Ikcp_flush(kcp *Ikcpcb) {
 			if segment.rto >= kcp.rx_rto * 2 {
 				// 如果连续多次失败，导致超时时间变成了原设定时间的两倍，那么设定超时时间恒定为两倍
 				segment.rto = kcp.rx_rto * 2
-				log.Println("触发恒定两倍")
 			}
-			log.Println("segment.rto:", segment.rto, ";kcp.rx_rto:", kcp.rx_rto)
 			segment.resendts = current + segment.rto
+			// 记录丢过包
 			lost = 1
 		} else if segment.fastack >= resent {
-			log.Println("segment.fastack:", segment.fastack)
+			//log.Println("segment.fastack:", segment.fastack)
+			// fastack 记录着跳过次数，eg：序列号为10的包还没有确认，但是11的包已经被确认，那么序列号为10的包fastack加1，
+			// 如果下一次被确认的包为12，那么序列号为10的包fastack继续加1
+			// 如果fastack的值累加到设定的阈值，那么触发快速重传机制
 			needsend = 1
 			segment.xmit++
+			// 重制fastack的累计
 			segment.fastack = 0
+			// 下次重传时间仍旧为segment.rto
 			segment.resendts = current + segment.rto
 			change++
 		}
 		if needsend != 0 {
+			// 执行发送操作
 			var need int32
 			segment.ts = current
 			segment.wnd = seg.wnd
@@ -1003,6 +1008,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 
 			need = int32(IKCP_OVERHEAD + segment._len)
 
+			//log.Println("size:", size, ";user:", kcp.user)
 			////fmt.Printf("vzex:need send%d, %d,%d,%d\n", kcp.nsnd_buf, size, need, kcp.mtu)
 			if size+need > int32(kcp.mtu) {
 				//      //fmt.Printf("trigger!\n");
@@ -1010,22 +1016,24 @@ func Ikcp_flush(kcp *Ikcpcb) {
 				ptr = buffer
 				size = 0
 			}
-
+			// 填充header数据到buffer
 			ptr = ikcp_encode_seg(ptr, segment)
 			size += 24
 
 			if segment._len > 0 {
+				// 填充data数据到buffer
 				copy(ptr, segment.data[:segment._len])
 				ptr = ptr[segment._len:]
 				size += int32(segment._len)
 			}
-
+			// 如果超过死亡重试次数，则关闭kcp？
 			if segment.xmit >= kcp.dead_link {
 				kcp.state = 0
 			}
 		}
 	}
-
+ 	// 如果snd_buf size为0，但是前面有操作写入数据到buffer，所以在此判断size是否为0
+	// 或者循环snd_buf最后一步没有执行发送到output，此时会执行发送
 	// flash remain segments
 	if size > 0 {
 		ikcp_output(kcp, buffer, size)
@@ -1033,6 +1041,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 
 	// update ssthresh
 	if change != 0 {
+		// 执行过快速重传
 		inflight := kcp.snd_nxt - kcp.snd_una
 		kcp.ssthresh = inflight / 2
 		if kcp.ssthresh < IKCP_THRESH_MIN {
@@ -1043,6 +1052,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 	}
 
 	if lost != 0 {
+		// 丢过包
 		kcp.ssthresh = cwnd / 2
 		if kcp.ssthresh < IKCP_THRESH_MIN {
 			kcp.ssthresh = IKCP_THRESH_MIN

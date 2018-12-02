@@ -1,0 +1,22 @@
+{
+  "access_key":"",
+  "client_key":"",
+  "server_addr":"",
+  "server_bust_addr":"",
+  "add_init_addr":"",
+  "pipe_num":"",
+  "kcp_settings":"",
+  "data_shards":"",
+  "parity_shards":"",
+  "serve_name":"",
+  "link_name":"",
+  "local_addr":"",
+  "b_verbose":"",
+  "delay_time":"",
+  "client_mode":"",
+  "b_use_ssl":"",
+  "b_show_version":"",
+  "b_load_setting_from_file":"",
+  "b_encrypt":"",
+  "dns_cache_num":""
+}
