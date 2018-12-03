@@ -163,6 +163,7 @@ func (s *ClientInfo) AddClient(conn net.Conn, clientInfo ClientSetting) {
 		s.ClientMap[conn].StartCSMode()
 	} else {
 		if clientInfo.AesKey != "" {
+			// 发送消息到作为server的client端，aeskey为多少
 			Write(s.Conn, id, "aeskey", clientInfo.AesKey)
 		}
 		n := clientInfo.PipeNum
