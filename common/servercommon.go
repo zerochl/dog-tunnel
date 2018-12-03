@@ -152,7 +152,12 @@ func (s *ClientInfo) GetSession(conn net.Conn) *Session {
 
 func (s *ClientInfo) AddClient(conn net.Conn, clientInfo ClientSetting) {
 	id := GetId(s.ServerName)
+	// clientA:请求端
+	// clientB:接收端，临时服务端
+	// ClientSetting:客户端传送来的配置
 	s.ClientMap[conn] = &Session{ClientA: conn, ClientB: s.Conn, Method: "udp", OverTime: 0, Status: "init", Id: id, Setting: clientInfo, Quit: make(chan bool), MakeHoleResponseN: 0, MakeHoleHasFail: false}
+	// ID2Session map记录Session
+	// 当前Id2Session map仅为作为Server的client自己对象，所以不同client之间并不会因为ID相同而造成重复现象
 	s.Id2Session[id] = s.ClientMap[conn]
 	if s.ClientMap[conn].Setting.Mode == 2 {
 		s.ClientMap[conn].StartCSMode()

@@ -138,6 +138,7 @@ func handleClient(conn net.Conn) {
 	//TODO 监听时间，超过1800秒断开链接,此处有点莫名其妙
 	common.Conn2ClientInfo[conn].Loop()
 	// 执行读取操作，通过bufio的scanner进行读取,读取与写入有自定义格式
+	// 注意：此处读取时TCP而不是KCP
 	common.Read(conn, handleResponse)
 	// 如果当前读取完毕或者1800超时会断开连接
 	// 断开连接之后需要关闭与清理客户端连接
@@ -195,8 +196,9 @@ func udphandleClient(conn *net.UDPConn) {
 	}
 }
 // 接收客户端发送过来的数据
+// 接收全是基于TCP
 func handleResponse(conn net.Conn, id string, action string, content string) {
-	log.Println("got", id, action, content)
+	log.Printf("got id:%s,action:%s, content:%s", id, action, content)
 	// 更新保存的客户端信息接收response的时间
 	common.GetClientInfoByConn(conn, func(client *common.ClientInfo) {
 		client.ResponseTime = time.Now().Unix()
@@ -218,12 +220,14 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 	case "init":
 		clientInfoStr := content
 		var clientInfo common.ClientSetting
+		// {"AccessKey":"123456","ClientKey":"654321","Name":"test","ClientType":"reg","Version":0.8,"Delay":2,"Mode":0,"PipeNum":1,"AesKey":""}
 		err := json.Unmarshal([]byte(clientInfoStr), &clientInfo)
 		if err != nil {
 			log.Println("error decode clientinfo, kick out", conn.RemoteAddr().String())
 			common.Write(conn, "0", "showandquit", "server decode clientInfo error")
 			return
 		}
+		// 检测版本
 		if common.Version != clientInfo.Version {
 			s_version := fmt.Sprintf("%.2f", common.Version)
 			c_version := fmt.Sprintf("%.2f", clientInfo.Version)
@@ -231,16 +235,21 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 			common.Write(conn, "0", "showandquit", "client version:"+c_version+" not eq with server:"+s_version)
 			return
 		}
+		//TODO 此处直接赋值为ServerName？
 		ServerName := clientInfo.Name
+		println("bUseDB:", bUseDB)
 		if clientInfo.ClientType == "reg" {
+			// 作为服务端
 			var user *auth.User
 			if bUseDB {
+				// 如果使用DB，是会存用户信息到数据库的,此时就需要提供AccessKey
 				if clientInfo.AccessKey == "" {
 					user, _ = auth.GetUser("test")
 				} else {
 					user, _ = auth.GetUserByKey(clientInfo.AccessKey)
 				}
 			} else {
+				println("auth.UserType_Admin:", auth.UserType_Admin)
 				user = &auth.User{UserType: auth.UserType_Admin}
 			}
 			//fmt.Printf("%+v\n", user)
@@ -257,6 +266,7 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 				return
 			}
 			f := func() {
+				// 创建连接
 				common.ServerName2Conn[ServerName] = conn
 				common.GetClientInfoByConn(conn, func(info *common.ClientInfo) {
 					info.ServerName = ServerName
@@ -270,6 +280,7 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 			}
 			common.GetClientInfoByName(ServerName, func(server *common.ClientInfo) {
 				if *bReplaceReg {
+					// 允许被重置
 					_conn := server.Conn
 					close(server.Quit)
 					for conn, session := range server.ClientMap {
@@ -289,10 +300,12 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 					_conn.Close()
 					f()
 				} else {
+					// 不允许重复连接，直接关闭
 					common.Write(conn, "0", "showandretry", "already have the ServerName!")
 				}
 			}, f)
 		} else if clientInfo.ClientType == "link" {
+			// 作为连接客户端
 			if clientInfo.Mode < 0 || clientInfo.Mode > 2 {
 				clientInfo.Mode = 0
 			}

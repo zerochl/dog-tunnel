@@ -26,8 +26,8 @@ import (
 	"dog-tunnel/nat"
 )
 
-var accessKey = flag.String("key", "", "please get an accesskey")
-var clientKey = flag.String("clientkey", "", "when other client linkt to the reg client, need clientkey, or empty")
+var accessKey = flag.String("key", "123456", "please get an accesskey")
+var clientKey = flag.String("clientkey", "654321", "when other client linkt to the reg client, need clientkey, or empty")
 
 var serverAddr = flag.String("remote", "127.0.0.1:8000", "connect remote server")
 var serverBustAddr = flag.String("buster", "127.0.0.1:8018", "MakeHole server")
@@ -41,11 +41,11 @@ var parityShards = flag.Int("ps", 0, "parityShards for fec, only available in p2
 var serveName = flag.String("reg", "", "reg the name for client link, must assign reg or link")
 
 var linkName = flag.String("link", "", "name for link, must assign reg or link")
-var localAddr = flag.String("local", "", "addr for listen or connect(value \"socks5\" means tcp socks5 proxy for reg),depends on link or reg")
+var localAddr = flag.String("local", "127.0.0.1:1082", "addr for listen or connect(value \"socks5\" means tcp socks5 proxy for reg),depends on link or reg")
 var bVerbose = flag.Bool("v", false, "verbose mode")
 var delayTime = flag.Int("delay", 2, "if bust fail, try to make some delay seconds")
 var clientMode = flag.Int("mode", 0, "connect mode:0 if p2p fail, use c/s mode;1 just p2p mode;2 just c/s mode")
-var bUseSSL = flag.Bool("ssl", true, "use ssl")
+var bUseSSL = flag.Bool("ssl", false, "use ssl")
 var bShowVersion = flag.Bool("version", false, "show version")
 var bLoadSettingFromFile = flag.Bool("f", false, "load setting from file(~/.dtunnel)")
 var bEncrypt = flag.Bool("encrypt", false, "p2p mode encrypt")
@@ -150,14 +150,14 @@ func StartClient() {
 		if *bUseSSL {
 			_remoteConn, err := tls.Dial("tcp", *serverAddr, &tls.Config{InsecureSkipVerify: true})
 			if err != nil {
-				println("connect remote err:" + err.Error())
+				println("connect remote err with ssl:" + err.Error())
 				return false
 			}
 			remoteConn = net.Conn(_remoteConn)
 		} else {
 			_remoteConn, err := net.DialTimeout("tcp", *serverAddr, 10*time.Second)
 			if err != nil {
-				println("connect remote err:" + err.Error())
+				println("connect remote err without ssl:" + err.Error())
 				return false
 			}
 			remoteConn = _remoteConn
@@ -253,6 +253,22 @@ func isCommonSessionId(id string) bool {
 
 func handleResponse(conn net.Conn, clientId string, action string, content string) {
 	//log.Println("got", clientId, action)
+	// 1:aeskey
+	// 2:show
+	// 3:showandretry
+	// 4:showandquit
+	// 5:clientquit
+	// 6:remove_udpsession
+	// 7:query_addrlist_a
+	// 8:query_addrlist_b
+	// 9:tell_bust_a
+	// 10:tell_bust_b
+	// 11:csmode_c_tunnel_close
+	// 12:csmode_s_tunnel_close
+	// 13:csmode_s_tunnel_open
+	// 14:csmode_c_begin
+	// 15:csmode_msg_c
+	// 16:csmode_msg_s
 	switch action {
 	case "aeskey":
 		fmt.Println("init aeskey for client", clientId, content)
@@ -354,7 +370,9 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			client.sessionLock.Unlock()
 		}
 	case "csmode_c_begin":
+		// mode:2
 		client, bHave := g_ClientMap[clientId]
+		println("bHave:", bHave, ";clientId:", clientId)
 		if !bHave {
 			client = &Client{id: clientId, pipes: make(map[int]net.Conn), engine: nil, buster: false, sessions: make(map[string]*clientSession), ready: true, bUdp: false}
 			client.pipes[0] = remoteConn
@@ -683,7 +701,7 @@ func connect() {
 	if err != nil {
 		println("encode args error")
 	}
-	log.Println("init client", string(clientInfoStr))
+	println("init client", string(clientInfoStr))
 	common.Write(remoteConn, "0", "init", string(clientInfoStr))
 }
 
@@ -1287,7 +1305,10 @@ func handleLocalServerResponse(client *Client, sessionId string) {
 		if err != nil {
 			break
 		}
-		if common.Write(pipe, sessionId, "tunnel_msg_c", string(arr[0:size])) != nil {
+		log.Println("in handleLocalServerResponse reader.Read error:", err.Error())
+		err = common.Write(pipe, sessionId, "tunnel_msg_c", string(arr[0:size]))
+		log.Println("in handleLocalServerResponse common.Write error:", err.Error())
+		if err != nil {
 			break
 		}
 	}

@@ -91,8 +91,8 @@ func Read(conn net.Conn, callback ReadCallBack) {
 		var l1, l2, l3 uint32
 		buf := bytes.NewReader(data)
 		// 获取头部12个字节大小
-		binary.Read(buf, binary.LittleEndian, &l2)
 		binary.Read(buf, binary.LittleEndian, &l1)
+		binary.Read(buf, binary.LittleEndian, &l2)
 		binary.Read(buf, binary.LittleEndian, &l3)
 		// 获取tail尾部长度
 		tail := l - headerLen*3
@@ -158,6 +158,7 @@ func GetId(name string) string {
 		currIdMap = make(map[string]int)
 		currIdMap[name] = 0
 	}
+	//TODO 此处最好修改一下，自增ID不太方便
 	currIdMap[name]++
 	//	println("gen new id", currIdMap[name])
 	return strconv.Itoa(currIdMap[name])
