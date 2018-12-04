@@ -124,7 +124,7 @@ func StartClient() {
 		n := 0
 		for {
 			<-c
-			log.Println("received signal,shutdown")
+			println("received signal,shutdown")
 			bForceQuit = true
 			if remoteConn != nil {
 				remoteConn.Close()
@@ -132,7 +132,7 @@ func StartClient() {
 			// 连续接收到了多次kill请求，直接exit程序
 			n++
 			if n > 5 {
-				log.Println("force shutdown")
+				println("force shutdown")
 				os.Exit(-1)
 			}
 		}
@@ -191,7 +191,7 @@ func StartClient() {
 		q <- true
 		// 关闭所有client,p2p链接的client
 		for clientId, client := range g_ClientMap {
-			log.Println("client shutdown", clientId)
+			println("client shutdown", clientId)
 			client.Quit()
 		}
 		//TODO 关闭udp？
@@ -226,7 +226,7 @@ func StartClient() {
 		loop()
 	}
 	// 程序执行到此处说明已经结束了，不管是否有go routine在等待管道都会关闭程序
-	log.Println("service shutdown")
+	println("service shutdown")
 }
 
 func (u *dnsInfo) IsAlive() bool {
@@ -252,7 +252,8 @@ func isCommonSessionId(id string) bool {
 }
 
 func handleResponse(conn net.Conn, clientId string, action string, content string) {
-	//log.Println("got", clientId, action)
+	//println("got clientId:", clientId,"action:", action, ";content:", content)
+	println("got clientId:", clientId,"action:", action, ";content:", content)
 	// 1:aeskey
 	// 2:show
 	// 3:showandretry
@@ -285,12 +286,12 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 		bForceQuit = true
 	case "clientquit":
 		client := g_ClientMap[clientId]
-		log.Println("clientquit!!!", clientId, client)
+		println("clientquit!!!", clientId, client)
 		if client != nil {
 			client.Quit()
 		}
 	case "remove_udpsession":
-		log.Println("server force remove udpsession", clientId)
+		println("server force remove udpsession", clientId)
 		delete(g_Id2UDPSession, clientId)
 	case "query_addrlist_a":
 		outip := content
@@ -318,7 +319,7 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			go session.beginMakeHole("")
 		}
 	case "csmode_c_tunnel_close":
-		log.Println("receive close msg from server")
+		println("receive close msg from server")
 		arr := strings.Split(clientId, "-")
 		clientId = arr[0]
 		sessionId := arr[1]
@@ -349,11 +350,11 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			client.ready = true
 			client.bUdp = false
 		}
-		//log.Println("client init csmode", clientId, sessionId)
+		//println("client init csmode", clientId, sessionId)
 		if *localAddr != "socks5" {
 			s_conn, err := net.DialTimeout("tcp", *localAddr, 10*time.Second)
 			if err != nil {
-				log.Println("connect to local server fail:", err.Error())
+				println("connect to local server fail:", err.Error())
 				msg := "cannot connect to bind addr" + *localAddr
 				common.Write(remoteConn, clientId, "tunnel_error", msg)
 				//remoteConn.Close()
@@ -383,6 +384,7 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			client.bUdp = false
 		}
 		if client.MultiListen() {
+			println("write action:", action, ";content:", "csmode")
 			common.Write(remoteConn, clientId, "makeholeok", "csmode")
 		}
 	case "csmode_msg_c":
@@ -413,7 +415,7 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			if session != nil && session.localConn != nil {
 				session.localConn.Write([]byte(content))
 			} else {
-				//log.Println("cs:cannot tunnel msg", sessionId)
+				//println("cs:cannot tunnel msg", sessionId)
 			}
 		}
 	}
@@ -437,14 +439,14 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 	if session.buster {
 		engine.SetOtherAddrList(addrList)
 	}
-	log.Println("begin bust", session.id, session.sessionId, session.buster)
+	println("begin bust", session.id, session.sessionId, session.buster)
 	if clientType == 1 && !session.buster {
-		log.Println("retry bust!")
+		println("retry bust!")
 	}
 	report := func() {
 		if session.buster {
 			if session.delay > 0 {
-				log.Println("try to delay", session.delay, "seconds")
+				println("try to delay", session.delay, "seconds")
 				time.Sleep(time.Duration(session.delay) * time.Second)
 			}
 			go common.Write(remoteConn, session.id, "success_bust_a", "")
@@ -521,7 +523,7 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 			size := len(client.pipes)
 			client.pipes[size] = conn
 			go client.Run(size, "")
-			log.Println("add common session", session.buster, session.sessionId, session.id)
+			println("add common session", session.buster, session.sessionId, session.id)
 			if clientType == 1 {
 				if len(client.pipes) == *pipeNum {
 					client.MultiListen()
@@ -530,12 +532,12 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 		} else {
 			client.specPipes[session.pipeType] = conn
 			go client.Run(-1, session.pipeType)
-			log.Println("add session for", session.pipeType)
+			println("add session for", session.pipeType)
 		}
 	} else {
 		delete(g_ClientMap, session.sessionId)
 		delete(g_ClientMapKey, session.sessionId)
-		log.Println("cannot connect", err.Error())
+		println("cannot connect", err.Error())
 		if !session.buster && err.Error() != "quit" {
 			common.Write(remoteConn, session.id, "makeholefail", "")
 		}
@@ -664,7 +666,7 @@ func connect() {
 	if *bEncrypt {
 		clientInfo.AesKey = string([]byte(fmt.Sprintf("asd4%d%d", int32(time.Now().Unix()),
 			(rand.New(rand.NewSource(time.Now().UnixNano())).Intn(100000) + 100)))[:16])
-		log.Println("debug aeskey", clientInfo.AesKey)
+		println("debug aeskey", clientInfo.AesKey)
 		key, _ := aes.NewCipher([]byte(clientInfo.AesKey))
 		aesKey = &key
 	}
@@ -674,14 +676,14 @@ func connect() {
 		if err == nil {
 			clientInfo.AccessKey = setting.Key
 		} else {
-			log.Println("load setting fail", err.Error())
+			println("load setting fail", err.Error())
 		}
 	} else {
 		if clientInfo.AccessKey != "" {
 			var setting = fileSetting{Key: clientInfo.AccessKey}
 			err := saveSettings(setting)
 			if err != nil {
-				log.Println("save setting error", err.Error())
+				println("save setting error", err.Error())
 			} else {
 				println("save setting ok, nexttime please use -f to replace -key")
 			}
@@ -725,7 +727,7 @@ func (session *clientSession) processSockProxy(sc *Client, sessionId, content st
 	session.recvMsg += content
 	bytes := []byte(session.recvMsg)
 	size := len(bytes)
-	//log.Println("recv msg-====", len(session.recvMsg),  session.recvMsg, session.status, sessionId)
+	//println("recv msg-====", len(session.recvMsg),  session.recvMsg, session.status, sessionId)
 	switch session.status {
 	case "init":
 		if session.localConn != nil {
@@ -751,7 +753,7 @@ func (session *clientSession) processSockProxy(sc *Client, sessionId, content st
 		session.status = "hello"
 		session.recvMsg = string(bytes[session.extra:])
 		session.extra = 0
-		//log.Println("now", len(session.recvMsg))
+		//println("now", len(session.recvMsg))
 	case "hello":
 		var hello reqMsg
 		bOk, tail := hello.read(bytes)
@@ -776,7 +778,7 @@ func (session *clientSession) processSockProxy(sc *Client, sessionId, content st
 					s_conn, err = net.DialTimeout(hello.reqtype, url, 30*time.Second)
 				}
 				if err != nil {
-					log.Println("connect to local server fail:", err.Error())
+					println("connect to local server fail:", err.Error())
 					ansmsg.gen(&hello, 4)
 					go common.Write(pipe, sessionId, "tunnel_msg_s", string(ansmsg.buf[:ansmsg.mlen]))
 					return
@@ -792,7 +794,7 @@ func (session *clientSession) processSockProxy(sc *Client, sessionId, content st
 				}
 			}()
 		} else {
-			//log.Println("wait hello")
+			//println("wait hello")
 		}
 		return
 	case "ok":
@@ -835,9 +837,9 @@ func dnsLoop() {
 				cache.AddCache(info.host, &dnsInfo{Queue: []*dnsQueryReq{info}, Status: "querying"}, int64(*dnsCacheNum*60))
 				go func() {
 					back := &dnsQueryBack{host: info.host}
-					//log.Println("try dial", info.url)
+					//println("try dial", info.url)
 					s_conn, err := net.DialTimeout(info.reqtype, info.url, 30*time.Second)
-					//log.Println("try dial", info.url, "ok")
+					//println("try dial", info.url, "ok")
 					if err != nil {
 						back.status = "queryfail"
 						back.err = err
@@ -849,7 +851,7 @@ func dnsLoop() {
 				}()
 			} else {
 				_cacheInfo := cacheInfo.(*dnsInfo)
-				//log.Println("on trigger", info.host, _cacheInfo.GetCacheTime(), len(_cacheInfo.Queue))
+				//println("on trigger", info.host, _cacheInfo.GetCacheTime(), len(_cacheInfo.Queue))
 				switch _cacheInfo.Status {
 				case "querying":
 					_cacheInfo.Queue = append(_cacheInfo.Queue, info)
@@ -879,10 +881,10 @@ func dnsLoop() {
 					}
 					cache.DelCache(info.host)
 				case "queryok":
-					log.Println("add host", info.host, "to dns cache")
+					println("add host", info.host, "to dns cache")
 					_cacheInfo.Ip, _, _ = net.SplitHostPort(info.conn.RemoteAddr().String())
 					_cacheInfo.SetCacheTime(-1)
-					//log.Println("process the queue of host", info.host, len(_cacheInfo.Queue))
+					//println("process the queue of host", info.host, len(_cacheInfo.Queue))
 					conn := info.conn
 					for _, _info := range _cacheInfo.Queue {
 						c := _info.c
@@ -945,7 +947,7 @@ func (msg *reqMsg) read(bytes []byte) (bool, []byte) {
 	//println("test", msg.ver, msg.cmd, msg.rsv, msg.atyp)
 
 	if 5 != msg.ver || 0 != msg.rsv {
-		log.Println("Request Message VER or RSV error!")
+		println("Request Message VER or RSV error!")
 		return false, bytes[4:]
 	}
 	buf = bytes[4:]
@@ -989,7 +991,7 @@ func (msg *reqMsg) read(bytes []byte) (bool, []byte) {
 	case 1:
 		msg.reqtype = "tcp"
 	case 2:
-		log.Println("BIND")
+		println("BIND")
 	case 3:
 		msg.reqtype = "udp"
 	}
@@ -1005,7 +1007,7 @@ func (msg *reqMsg) read(bytes []byte) (bool, []byte) {
 			msg.dst_addr[12], msg.dst_addr[13], msg.dst_addr[14], msg.dst_addr[15],
 			msg.dst_port2)
 	}
-	log.Println(msg.reqtype, msg.url, msg.atyp, msg.dst_port2)
+	println(msg.reqtype, msg.url, msg.atyp, msg.dst_port2)
 	return true, buf[2:]
 }
 
@@ -1044,7 +1046,7 @@ func (sc *Client) removeSession(sessionId string) bool {
 		sc.sessionLock.Lock()
 		delete(sc.sessions, sessionId)
 		sc.sessionLock.Unlock()
-		//log.Println("client", sc.id, "remove session", sessionId)
+		//println("client", sc.id, "remove session", sessionId)
 		return true
 	}
 	return false
@@ -1061,7 +1063,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 	case "tunnel_error":
 		if conn != nil {
 			conn.Write([]byte(content))
-			log.Println("tunnel error", content, sessionId)
+			println("tunnel error", content, sessionId)
 		}
 		sc.removeSession(sessionId)
 		//case "serve_begin":
@@ -1070,18 +1072,18 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 			//println("tunnel msg", sessionId, len(content))
 			conn.Write([]byte(content))
 		} else {
-			//log.Println("cannot tunnel msg", sessionId)
+			//println("cannot tunnel msg", sessionId)
 		}
 	case "tunnel_close_s":
 		sc.removeSession(sessionId)
 	case "ping", "pingback":
-		//log.Println("recv", action)
+		//println("recv", action)
 		if action == "ping" {
 			common.Write(pipe, sessionId, "pingback", "")
 		}
 	case "tunnel_msg_c":
 		if conn != nil {
-			//log.Println("tunnel", len(content), sessionId)
+			//println("tunnel", len(content), sessionId)
 			conn.Write([]byte(content))
 		} else if *localAddr == "socks5" {
 			if session == nil {
@@ -1098,7 +1100,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 			if *localAddr != "socks5" {
 				s_conn, err := net.DialTimeout("tcp", *localAddr, 10*time.Second)
 				if err != nil {
-					log.Println("connect to local server fail:", err.Error())
+					println("connect to local server fail:", err.Error())
 					msg := "cannot connect to bind addr" + *localAddr
 					common.Write(pipe, sessionId, "tunnel_error", msg)
 					//remoteConn.Close()
@@ -1119,7 +1121,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 }
 
 func (sc *Client) Quit() {
-	log.Println("client quit", sc.id)
+	println("client quit", sc.id)
 	delete(g_ClientMap, sc.id)
 	delete(g_ClientMapKey, sc.id)
 	for id, _ := range sc.sessions {
@@ -1142,7 +1144,7 @@ func (sc *Client) MultiListen() bool {
 	if g_LocalConn == nil {
 		g_LocalConn, err := net.Listen("tcp", *localAddr)
 		if err != nil {
-			log.Println("cannot listen addr:" + err.Error())
+			println("cannot listen addr:" + err.Error())
 			if remoteConn != nil {
 				remoteConn.Close()
 			}
@@ -1150,7 +1152,7 @@ func (sc *Client) MultiListen() bool {
 		}
 		go func() {
 			quit := false
-			ping := time.NewTicker(time.Second)
+			ping := time.NewTicker(5 * time.Second)
 			go func() {
 			out:
 				for {
@@ -1171,9 +1173,10 @@ func (sc *Client) MultiListen() bool {
 					continue
 				}
 				sessionId := common.GetId("udp")
+				// 随机一个pipe管道
 				pipe := sc.getOnePipe()
 				if pipe == nil {
-					log.Println("cannot get pipe for client")
+					println("cannot get pipe for client")
 					if remoteConn != nil {
 						remoteConn.Close()
 					}
@@ -1182,7 +1185,6 @@ func (sc *Client) MultiListen() bool {
 				sc.sessionLock.Lock()
 				sc.sessions[sessionId] = &clientSession{pipe: pipe, localConn: conn}
 				sc.sessionLock.Unlock()
-				log.Println("client", sc.id, "create session", sessionId)
 				go handleLocalServerResponse(sc, sessionId)
 			}
 			quit = true
@@ -1208,7 +1210,7 @@ func (sc *Client) getOnePipe() net.Conn {
 		return nil
 	}
 	index := rand.Intn(size)
-	log.Println("choose pipe for ", sc.id, ",", index, "of", size)
+	println("choose pipe for ", sc.id, ",", index, "of", size)
 	hitId := tmp[index]
 	pipe, _ := sc.pipes[hitId]
 	return pipe
@@ -1233,7 +1235,7 @@ func (sc *Client) Run(index int, specPipe string) {
 			}
 		}
 		common.Read(pipe, callback)
-		log.Println("client end read", index)
+		println("client end read", index)
 		if index >= 0 {
 			delete(sc.pipes, index)
 			if clientType == 1 {
@@ -1281,7 +1283,7 @@ func handleLocalPortResponse(client *Client, id string) {
 			break
 		}
 	}
-	// log.Println("handlerlocal down")
+	// println("handlerlocal down")
 	if client.removeSession(sessionId) {
 		common.Write(session.pipe, id, "tunnel_close_s", "")
 	}
@@ -1303,12 +1305,13 @@ func handleLocalServerResponse(client *Client, sessionId string) {
 	for {
 		size, err := reader.Read(arr)
 		if err != nil {
+			println("in handleLocalServerResponse reader.Read error:", err.Error())
 			break
 		}
-		log.Println("in handleLocalServerResponse reader.Read error:", err.Error())
+		println("common.Write sessionId:", sessionId, ";tunnel_msg_c")
 		err = common.Write(pipe, sessionId, "tunnel_msg_c", string(arr[0:size]))
-		log.Println("in handleLocalServerResponse common.Write error:", err.Error())
 		if err != nil {
+			println("in handleLocalServerResponse common.Write error:", err.Error())
 			break
 		}
 	}
