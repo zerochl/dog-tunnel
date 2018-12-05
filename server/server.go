@@ -198,7 +198,7 @@ func udphandleClient(conn *net.UDPConn) {
 // 接收客户端发送过来的数据
 // 接收全是基于TCP
 func handleResponse(conn net.Conn, id string, action string, content string) {
-	log.Printf("got id:%s,action:%s, content:%s", id, action, content)
+	log.Printf("got id:%s,action:%s, content:%s, remote addr:%s", id, action, content, conn.RemoteAddr().String())
 	// 更新保存的客户端信息接收response的时间
 	common.GetClientInfoByConn(conn, func(client *common.ClientInfo) {
 		client.ResponseTime = time.Now().Unix()
@@ -405,14 +405,14 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 			if content == "csmode" {
 				session, _bHave := server.Id2Session[id]
 				if _bHave {
-					log.Println("<<=====make hole ok", conn.RemoteAddr().String(), server.ServerName, session.Id)
+					log.Println("<<=====make hole ok mode=csmode", conn.RemoteAddr().String(), server.ServerName, session.Id)
 					session.Status = "ok"
 					session.MakeHoleResponseN++
 				}
 			}
 			udpsession, bHave := server.Id2MakeSession[id]
 			if bHave {
-				log.Println("<<=====make hole ok", conn.RemoteAddr().String(), udpsession.ServerName, udpsession.SessionId, id)
+				log.Println("<<=====make hole ok have Id2MakeSession", conn.RemoteAddr().String(), udpsession.ServerName, udpsession.SessionId, id)
 				sessionId := udpsession.SessionId
 				session, _bHave := server.Id2Session[sessionId]
 				if _bHave {
@@ -424,6 +424,8 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 					}
 				}
 				udpsession.Remove(false)
+			} else {
+				log.Println("<<=====make hole not ok have not Id2MakeSession")
 			}
 		}, func() {
 		})
@@ -461,6 +463,7 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 		common.GetServerInfoByConn(conn, func(server *common.ClientInfo) {
 			session := server.GetSession(conn)
 			if session != nil {
+				log.Println("in tunnel_open clientB RemoteAddr:", session.ClientB.RemoteAddr().String())
 				common.Write(session.ClientB, session.Id+"-"+id, "csmode_s_tunnel_open", content)
 			} else {
 				println("no session")

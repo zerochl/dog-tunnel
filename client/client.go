@@ -79,6 +79,7 @@ func StartClient() {
 	go dnsLoop()
 	if *bShowVersion {
 		fmt.Printf("%.2f\n", common.Version)
+		println("version:", common.Version)
 		return
 	}
 	if !*bVerbose {
@@ -253,7 +254,7 @@ func isCommonSessionId(id string) bool {
 
 func handleResponse(conn net.Conn, clientId string, action string, content string) {
 	//println("got clientId:", clientId,"action:", action, ";content:", content)
-	println("got clientId:", clientId,"action:", action, ";content:", content)
+	println("got clientId:", clientId,"action:", action, ";content:", content, ";conn remote addr:", conn.RemoteAddr().String())
 	// 1:aeskey
 	// 2:show
 	// 3:showandretry
@@ -281,7 +282,7 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 		fmt.Println(time.Now().Format("2006-01-02 15:04:05"), content)
 		remoteConn.Close()
 	case "showandquit":
-		fmt.Println(time.Now().Format("2006-01-02 15:04:05"), content)
+		println(time.Now().Format("2006-01-02 15:04:05"), content)
 		remoteConn.Close()
 		bForceQuit = true
 	case "clientquit":
@@ -342,16 +343,19 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 		sessionId := arr[1]
 		client, bHave := g_ClientMap[clientId]
 		if !bHave {
+			println("have not client by client id:", clientId)
 			client = &Client{id: clientId, pipes: make(map[int]net.Conn), engine: nil, buster: true, sessions: make(map[string]*clientSession), ready: true, bUdp: false}
 			client.pipes[0] = remoteConn
 			g_ClientMap[clientId] = client
 		} else {
+			println("in csmode_s_tunnel_open have client and client remote addr")
 			client.pipes[0] = remoteConn
 			client.ready = true
 			client.bUdp = false
 		}
 		//println("client init csmode", clientId, sessionId)
 		if *localAddr != "socks5" {
+			// 连接需要打洞的本地服务,然后通过服务端转发
 			s_conn, err := net.DialTimeout("tcp", *localAddr, 10*time.Second)
 			if err != nil {
 				println("connect to local server fail:", err.Error())
@@ -360,6 +364,8 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 				//remoteConn.Close()
 				return
 			} else {
+				// 执行sessions操作的时候加上锁
+				//TODO 此类操作最好封装成方法
 				client.sessionLock.Lock()
 				client.sessions[sessionId] = &clientSession{pipe: remoteConn, localConn: s_conn}
 				client.sessionLock.Unlock()
@@ -384,7 +390,8 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 			client.bUdp = false
 		}
 		if client.MultiListen() {
-			println("write action:", action, ";content:", "csmode")
+			println("write action:", "makeholeok", ";content:", "csmode")
+			// 打孔OK？
 			common.Write(remoteConn, clientId, "makeholeok", "csmode")
 		}
 	case "csmode_msg_c":
@@ -395,7 +402,11 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 		client, bHave := g_ClientMap[clientId]
 		if bHave {
 			session := client.getSession(sessionId)
+			// session.localConn为连接的本地服务
+			// session.pipe 为远端的服务，如果是转发模式，则为服务端的服务
 			if session != nil && session.localConn != nil {
+				// 直接转发给作为server的client的本地服务,
+				// 本地服务做出反应会提现在方法handleLocalPortResponse中,此方法为tunnel建立时创建的监听
 				session.localConn.Write([]byte(content))
 			} else if session != nil && *localAddr == "socks5" {
 				session.processSockProxy(client, oriId, content, func() {
@@ -404,6 +415,8 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 					}
 				})
 			}
+		} else {
+			println("in csmode_msg_c can not find client in g_ClientMap by client-id-", clientId)
 		}
 	case "csmode_msg_s":
 		arr := strings.Split(clientId, "-")
@@ -1101,7 +1114,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 				s_conn, err := net.DialTimeout("tcp", *localAddr, 10*time.Second)
 				if err != nil {
 					println("connect to local server fail:", err.Error())
-					msg := "cannot connect to bind addr" + *localAddr
+					msg := "annot connect to bind addr" + *localAddr
 					common.Write(pipe, sessionId, "tunnel_error", msg)
 					//remoteConn.Close()
 					return
@@ -1257,7 +1270,7 @@ func (sc *Client) RemoteAddr() net.Addr               { return nil }
 func (sc *Client) SetDeadline(t time.Time) error      { return nil }
 func (sc *Client) SetReadDeadline(t time.Time) error  { return nil }
 func (sc *Client) SetWriteDeadline(t time.Time) error { return nil }
-
+// 作为server的client对本地的服务进行中转
 func handleLocalPortResponse(client *Client, id string) {
 	sessionId := id
 	if !client.bUdp {
@@ -1268,6 +1281,8 @@ func handleLocalPortResponse(client *Client, id string) {
 	if session == nil {
 		return
 	}
+	// session.localConn为连接的本地服务
+	// session.pipe 为远端的服务，如果是转发模式，则为服务端的服务
 	conn := session.localConn
 	if conn == nil {
 		return
@@ -1279,16 +1294,18 @@ func handleLocalPortResponse(client *Client, id string) {
 		if err != nil {
 			break
 		}
+		// 转发给pipe
 		if common.Write(session.pipe, id, "tunnel_msg_s", string(arr[0:size])) != nil {
 			break
 		}
 	}
 	// println("handlerlocal down")
 	if client.removeSession(sessionId) {
+		println("common.Write sessionId:", sessionId, ";tunnel_close_s")
 		common.Write(session.pipe, id, "tunnel_close_s", "")
 	}
 }
-
+// 接收本地请求，所以方法名叫local server，其实是作为client的client开启的中转服务
 func handleLocalServerResponse(client *Client, sessionId string) {
 	session := client.getSession(sessionId)
 	if session == nil {
@@ -1299,6 +1316,7 @@ func handleLocalServerResponse(client *Client, sessionId string) {
 		return
 	}
 	conn := session.localConn
+	println("common.Write action:", "tunnel_open;pipe:", pipe)
 	common.Write(pipe, sessionId, "tunnel_open", "")
 	arr := make([]byte, nat.SendBuffSize)
 	reader := bufio.NewReader(conn)
@@ -1315,6 +1333,7 @@ func handleLocalServerResponse(client *Client, sessionId string) {
 			break
 		}
 	}
+	println("common.Write sessionId:", sessionId, ";tunnel_close")
 	common.Write(pipe, sessionId, "tunnel_close", "")
 	client.removeSession(sessionId)
 }
