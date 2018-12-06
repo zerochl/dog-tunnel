@@ -301,6 +301,7 @@ func handleResponse(conn net.Conn, clientId string, action string, content strin
 		sessionId := arr[1]
 		pipeType := arr[2]
 		g_Id2UDPSession[id] = &UDPMakeSession{id: id, sessionId: sessionId, pipeType: pipeType}
+		println("outip:", outip)
 		go g_Id2UDPSession[id].reportAddrList(true, outip)
 	case "query_addrlist_b":
 		arr := strings.Split(clientId, "-")
@@ -616,6 +617,7 @@ func (session *UDPMakeSession) reportAddrList(buster bool, outip string) {
 		}
 	}
 	outip += ";" + *addInitAddr
+	println("final outip:", outip)
 	_id, _ := strconv.Atoi(id)
 	engine, err := nat.Init(outip, buster, _id, *serverBustAddr)
 	engine.Kcp = getKcpSetting()
@@ -633,6 +635,7 @@ func (session *UDPMakeSession) reportAddrList(buster bool, outip string) {
 	}
 	addrList := engine.GetAddrList()
 	println("addrList", addrList)
+	println("addrList end")
 	common.Write(remoteConn, id, "report_addrlist", addrList)
 }
 

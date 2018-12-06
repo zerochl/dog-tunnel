@@ -904,7 +904,7 @@ func Ikcp_flush(kcp *Ikcpcb) {
 	}
 
 	// move data from snd_queue to snd_buf,移动数据从发送队列到发送缓存,消费send queue
-	println("check",kcp.snd_queue.Len())
+	//println("check",kcp.snd_queue.Len())
 	for p := kcp.snd_queue.Front(); p != nil; {
 		////println("debug check:", t, p.Next(), kcp.snd_nxt, kcp.snd_una, cwnd, _itimediff(kcp.snd_nxt, kcp.snd_una + cwnd))
 		////fmt.Printf("timediff %d,%d,%d,%d\n", kcp.snd_nxt, kcp.snd_una, cwnd, _itimediff(kcp.snd_nxt, kcp.snd_una + cwnd));

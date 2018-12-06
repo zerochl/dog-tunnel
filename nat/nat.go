@@ -9,12 +9,14 @@ import (
 	"dog-tunnel/nat/stun"
 )
 
+// udpAddr:服务端的UDP地址
 func Init(outIpList string, buster bool, id int, udpAddr string) (*AttemptEngine, error) {
+	// 不指定端口号，会默认随机取一个
 	sock, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
 		return nil, err
 	}
-
+	println("in nat init sock:", sock.LocalAddr().String())
 	engine := &AttemptEngine{sock: sock, buster: buster, id: id}
 	if err := engine.init(outIpList, udpAddr); err != nil {
 		return nil, err
@@ -93,6 +95,7 @@ func (e *AttemptEngine) init(outIpList string, udpAddr string) error {
 	if err != nil {
 		return err
 	}
+	println("candidates:", len(candidates))
 	e.local_attempts = make([]attempt, len(candidates))
 	for i := range candidates {
 		e.local_attempts[i].candidate = candidates[i]

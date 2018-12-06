@@ -183,14 +183,14 @@ func handleClient(conn net.Conn) {
 func udphandleClient(conn *net.UDPConn) {
 
 	for {
-
 		data := make([]byte, 1024)
 		//TODO 此处读取data并未使用
-		_, remoteAddr, err := conn.ReadFromUDP(data)
+		n, remoteAddr, err := conn.ReadFromUDP(data)
 		if err != nil {
 			log.Println("failed to read UDP msg because of ", err.Error())
 			break
 		}
+		log.Println("in udphandleClient data:", string(data[:n]))
 		//TODO 将地址原封不动返回？
 		conn.WriteToUDP([]byte(remoteAddr.String()), remoteAddr)
 	}

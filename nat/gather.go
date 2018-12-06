@@ -44,14 +44,17 @@ func pruneDups(cs []candidate) []candidate {
 	}
 	return ret
 }
-
+// 收集候选人
+// sock:本地监听的UDP
+// outIpList:提供的本地IP地址
+// udpAddr:服务端的UDP服务地址
 func GatherCandidates(sock *net.UDPConn, outIpList string, udpAddr string) ([]candidate, error) {
 	laddr := sock.LocalAddr().(*net.UDPAddr)
 	ret := []candidate{}
 	switch {
 	case laddr.IP.IsLoopback():
 		return nil, errors.New("Connecting over loopback not supported")
-	case laddr.IP.IsUnspecified():
+	case laddr.IP.IsUnspecified():// 未指定，未使用
 		addrs, err := net.InterfaceAddrs()
 		if err != nil {
 			return nil, err
@@ -93,16 +96,19 @@ func GatherCandidates(sock *net.UDPConn, outIpList string, udpAddr string) ([]ca
 		p2pAddr := ""
 
 		for i := 0; i < 5; i++ {
+			println("write: ", "makehole", ";", sock.LocalAddr().String())
+			// 发送数据到服务端UDP
 			sock.WriteToUDP([]byte("makehole"), addr)
 			buf := make([]byte, 100)
 			sock.SetReadDeadline(time.Now().Add(time.Duration(1) * time.Second))
-			n, _, err := sock.ReadFromUDP(buf)
+			n, udpAddr, err := sock.ReadFromUDP(buf)
 			if err != nil {
-				fmt.Println("Can't ReadFromUDP: ", err, addr.String())
+				println("Can't ReadFromUDP: ", err, addr.String())
 				continue
 			} else {
+				// 获取p2p地址，其实是自己的出口地址，被服务端返回过来而已，此处这么做的道理是自己如果是内网并不知道自己外网的地址
 				p2pAddr = string(buf[0:n])
-				fmt.Println("read: ", p2pAddr)
+				println("read: ", p2pAddr, ";udpAddr:", udpAddr.String())
 				break
 			}
 		}

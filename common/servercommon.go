@@ -39,7 +39,9 @@ type UDPMakeSession struct {
 
 type Session struct {
 	Id                string
+	// 作为client的client
 	ClientA           net.Conn
+	// 作为server的client
 	ClientB           net.Conn
 	Status            string
 	OverTime          int64
@@ -97,6 +99,7 @@ func (session *Session) Loop() {
 			case <-checkChan.C:
 				//println("check lop session status", session.status)
 				if time.Now().Unix() > session.OverTime {
+					// 超时，且Status不为OK才执行close
 					if session.Status != "ok" {
 						if session.Method == "udp" || session.Method == "cs" {
 							session.ClientA.Close()
@@ -121,6 +124,7 @@ func (session *Session) StartSession(n int, ServerName, sessionId string) {
 		} else {
 			Write(session.ClientB, "0", "showandquit", "pipen cannot larger than "+strconv.Itoa(10))
 		}
+		return
 	}
 	for i := 0; i < n; i++ {
 		session.startUdpSession(ServerName, sessionId, "common")
@@ -131,8 +135,10 @@ func (session *Session) StartSession(n int, ServerName, sessionId string) {
 }
 
 func (session *Session) startUdpSession(ServerName, sessionId, pipeType string) {
+	// 获取管道自增ID
 	udpSessionId := GetId("makehole")
 	log.Println("start session", session.Id, session.Setting.Mode, ServerName, udpSessionId)
+	// 构建UDP session
 	udpSession := &UDPMakeSession{CreateTime: time.Now().Unix(), Id: udpSessionId, ClientA: session.ClientA, ClientB: session.ClientB, SessionId: sessionId, PipeType: pipeType, ServerName: ServerName, Status: "init", Quit: make(chan bool)}
 	GetClientInfoByName(ServerName, func(server *ClientInfo) {
 		server.Id2MakeSession[udpSession.Id] = udpSession
@@ -151,6 +157,7 @@ func (s *ClientInfo) GetSession(conn net.Conn) *Session {
 }
 
 func (s *ClientInfo) AddClient(conn net.Conn, clientInfo ClientSetting) {
+	// 获取递增的sessionId
 	id := GetId(s.ServerName)
 	// clientA:请求端
 	// clientB:接收端，临时服务端
@@ -253,16 +260,16 @@ func (udpsession *UDPMakeSession) BeginMakeHole(step int, content string) {
 	if session != nil && session.Method == "cs" {
 		return
 	}
-	id := udpsession.Id
-	ClientA := udpsession.ClientA
-	ClientB := udpsession.ClientB
+	udpSessionId := udpsession.Id
+	ClientASClient := udpsession.ClientA
+	ClientASServer := udpsession.ClientB
 	if step == 0 {
-		log.Println("===>>tell a to report addrlist", ClientA.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
+		log.Println("===>>tell a to report addrlist", ClientASClient.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
 		delay := 0
 		if session != nil {
 			delay = session.Setting.Delay
 		}
-		Write(ClientA, id+"-"+udpsession.SessionId+"-"+udpsession.PipeType, "query_addrlist_a", ClientA.RemoteAddr().(*net.TCPAddr).IP.String()+":"+strconv.Itoa(delay))
+		Write(ClientASClient, udpSessionId+"-"+udpsession.SessionId+"-"+udpsession.PipeType, "query_addrlist_a", ClientASClient.RemoteAddr().(*net.TCPAddr).IP.String()+":"+strconv.Itoa(delay))
 		if session != nil {
 			session.Status = "tella"
 		}
@@ -273,23 +280,23 @@ func (udpsession *UDPMakeSession) BeginMakeHole(step int, content string) {
 			if session != nil {
 				session.Status = "atellb"
 			}
-			log.Println("===>>tell b to report addlist,give b the a's addrlist", ClientB.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
-			Write(ClientB, id+"-"+udpsession.SessionId+"-"+udpsession.PipeType, "query_addrlist_b", ClientB.RemoteAddr().(*net.TCPAddr).IP.String()+":"+content)
+			log.Println("===>>tell b to report addlist,give b the a's addrlist", ClientASServer.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
+			Write(ClientASServer, udpSessionId+"-"+udpsession.SessionId+"-"+udpsession.PipeType, "query_addrlist_b", ClientASServer.RemoteAddr().(*net.TCPAddr).IP.String()+":"+content)
 		} else if udpsession.Status == "atellb" {
 			udpsession.Status = "bust_start_a"
 			if session != nil {
 				session.Status = "bust_start_a"
 			}
-			log.Println("=====>>tell a the b 's addrlist, and a start bust", ClientA.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
-			Write(ClientA, id, "tell_bust_a", content)
+			log.Println("=====>>tell a the b 's addrlist, and a start bust", ClientASClient.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
+			Write(ClientASClient, udpSessionId, "tell_bust_a", content)
 		}
 	} else if step == 2 {
 		udpsession.Status = "bust_start_b"
 		if session != nil {
 			session.Status = "bust_start_b"
 		}
-		log.Println("=====>>tell b start bust", ClientB.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
-		Write(ClientB, id, "tell_bust_b", content)
+		log.Println("=====>>tell b start bust", ClientASServer.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
+		Write(ClientASServer, udpSessionId, "tell_bust_b", content)
 	}
 }
 
