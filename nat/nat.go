@@ -11,6 +11,10 @@ import (
 
 // udpAddr:服务端的UDP地址
 func Init(outIpList string, buster bool, id int, udpAddr string) (*AttemptEngine, error) {
+	//println("outIpList:", outIpList)
+	//println("buster:", buster)
+	//println("id:", id)
+	//println("udpAddr:", udpAddr)
 	// 不指定端口号，会默认随机取一个
 	sock, err := net.ListenUDP("udp", &net.UDPAddr{})
 	if err != nil {
@@ -37,7 +41,9 @@ type AttemptEngine struct {
 	id             int
 	buster         bool
 	sock           *net.UDPConn
+	// nat对方的地址
 	attempts       []attempt
+	// 自己的地址
 	local_attempts []attempt
 	p2pconn        net.Conn
 	otherReady     bool

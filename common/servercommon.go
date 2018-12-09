@@ -126,6 +126,7 @@ func (session *Session) StartSession(n int, ServerName, sessionId string) {
 		}
 		return
 	}
+	log.Println("in StartSession n:", n)
 	for i := 0; i < n; i++ {
 		session.startUdpSession(ServerName, sessionId, "common")
 	}
