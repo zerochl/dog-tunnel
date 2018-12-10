@@ -431,10 +431,12 @@ func handleResponse(conn net.Conn, id string, action string, content string) {
 		})
 	case "report_addrlist":
 		common.GetServerInfoByConn(conn, func(server *common.ClientInfo) {
+			// udpsession 为init时创建，一个pipe会创建一个udpsession
 			udpsession, bHave := server.Id2MakeSession[id]
 			//log.Println("test", udpsession, id, server.ServerName)
 			if bHave {
-				log.Println("<<===report addr list ok", conn.RemoteAddr().String(), udpsession.ServerName, udpsession.Id)
+				log.Println("<<===report addr list ok addr:", conn.RemoteAddr().String(), ";serverName:", udpsession.ServerName,
+					";udpsessionId:", udpsession.Id)
 				udpsession.BeginMakeHole(1, content)
 			}
 		}, func() {

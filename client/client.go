@@ -451,6 +451,8 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 	}
 	addrList := content
 	if session.buster {
+		// buster:true 表明是作为client的client
+		// 此处的addrList是作为server的client的地址
 		engine.SetOtherAddrList(addrList)
 	}
 	println("begin bust", session.id, session.sessionId, session.buster)
@@ -476,8 +478,10 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 	var conn net.Conn
 	var err error
 	if aesBlock == nil {
+		// 执行无需加解密的nat
 		conn, err = engine.GetConn(report, nil, nil)
 	} else {
+		// 执行需要加解密的nat
 		conn, err = engine.GetConn(report, func(s []byte) []byte {
 			if aesBlock == nil {
 				return s
@@ -537,9 +541,10 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 			size := len(client.pipes)
 			client.pipes[size] = conn
 			go client.Run(size, "")
-			println("add common session", session.buster, session.sessionId, session.id)
+			println("add common session", session.buster, session.sessionId, session.id, ";clientType:", clientType)
 			if clientType == 1 {
 				if len(client.pipes) == *pipeNum {
+					// client type=1,表明是作为client的server，所以需要监听本地端口,供调用
 					client.MultiListen()
 				}
 			}
@@ -605,8 +610,10 @@ func (session *UDPMakeSession) reportAddrList(buster bool, outip string) {
 	id := session.id
 	var otherAddrList string
 	if !buster {
+		// buster:false标明时给作为server的client使用，使用冒号区分作为client的client的ip与他提供的可用地址
 		arr := strings.SplitN(outip, ":", 2)
 		outip, otherAddrList = arr[0], arr[1]
+		println("in reportAddrList buster:", buster, "outip:", outip, ";otherAddrList:", otherAddrList)
 	} else {
 		arr := strings.SplitN(outip, ":", 2)
 		var delayTime string
@@ -615,6 +622,7 @@ func (session *UDPMakeSession) reportAddrList(buster bool, outip string) {
 		if session.delay < 0 {
 			session.delay = 0
 		}
+		println("in reportAddrList buster:", buster, ";outip:", outip)
 	}
 	outip += ";" + *addInitAddr
 	println("final outip:", outip)
@@ -631,6 +639,7 @@ func (session *UDPMakeSession) reportAddrList(buster bool, outip string) {
 	session.engine = engine
 	session.buster = buster
 	if !buster {
+		// 只有作为server的client才会执行输入
 		engine.SetOtherAddrList(otherAddrList)
 	}
 	addrList := engine.GetAddrList()
@@ -743,7 +752,7 @@ func (session *clientSession) processSockProxy(sc *Client, sessionId, content st
 	session.recvMsg += content
 	bytes := []byte(session.recvMsg)
 	size := len(bytes)
-	//println("recv msg-====", len(session.recvMsg),  session.recvMsg, session.status, sessionId)
+	println("in processSockProxy recv msg-====", len(session.recvMsg),  session.recvMsg, session.status, sessionId)
 	switch session.status {
 	case "init":
 		if session.localConn != nil {
@@ -1069,7 +1078,7 @@ func (sc *Client) removeSession(sessionId string) bool {
 }
 
 func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, content string) {
-	//println("recv p2p tunnel", sessionId, action, content)
+	println("in OnTunnelRecv recv p2p tunnel", sessionId, action, content)
 	session := sc.getSession(sessionId)
 	var conn net.Conn
 	if session != nil {
@@ -1178,7 +1187,7 @@ func (sc *Client) MultiListen() bool {
 							break out
 						}
 						for _, pipe := range sc.pipes {
-							common.Write(pipe, "-1", "ping", "")
+							common.Write(pipe, "-1", "ping", "in MultiListen")
 						}
 					}
 				}
@@ -1235,6 +1244,7 @@ func (sc *Client) getOnePipe() net.Conn {
 ///////////////////////multi pipe support
 
 func (sc *Client) Run(index int, specPipe string) {
+	// p2p conn
 	var pipe net.Conn
 	if index >= 0 {
 		pipe = sc.pipes[index]
