@@ -526,7 +526,7 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 	delete(g_Id2UDPSession, session.id)
 	if err == nil {
 		if !session.buster {
-			common.Write(remoteConn, session.id, "makeholeok", "")
+			common.Write(remoteConn, session.id, " ", "")
 		}
 		client, bHave := g_ClientMap[session.sessionId]
 		if !bHave {
