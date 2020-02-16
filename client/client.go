@@ -544,7 +544,7 @@ func (session *UDPMakeSession) beginMakeHole(content string) {
 			println("add common session", session.buster, session.sessionId, session.id, ";clientType:", clientType)
 			if clientType == 1 {
 				if len(client.pipes) == *pipeNum {
-					// client type=1,表明是作为client的server，所以需要监听本地端口,供调用
+					// client type=1,表明是作为client的client，需要监听本地端口,供调用
 					client.MultiListen()
 				}
 			}
@@ -1078,7 +1078,7 @@ func (sc *Client) removeSession(sessionId string) bool {
 }
 
 func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, content string) {
-	println("in OnTunnelRecv recv p2p tunnel", sessionId, action, content)
+	println("in OnTunnelRecv recv p2p tunnel sessionId:", sessionId, ";action:", action, ";content:", content)
 	session := sc.getSession(sessionId)
 	var conn net.Conn
 	if session != nil {
@@ -1094,7 +1094,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 		//case "serve_begin":
 	case "tunnel_msg_s":
 		if conn != nil {
-			//println("tunnel msg", sessionId, len(content))
+			println("tunnel msg s ==========", sessionId, len(content))
 			conn.Write([]byte(content))
 		} else {
 			//println("cannot tunnel msg", sessionId)
@@ -1109,6 +1109,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 	case "tunnel_msg_c":
 		if conn != nil {
 			//println("tunnel", len(content), sessionId)
+			println("tunnel msg c ==========", sessionId, len(content))
 			conn.Write([]byte(content))
 		} else if *localAddr == "socks5" {
 			if session == nil {
@@ -1122,6 +1123,7 @@ func (sc *Client) OnTunnelRecv(pipe net.Conn, sessionId string, action string, c
 		sc.removeSession(sessionId)
 	case "tunnel_open":
 		if clientType == 0 {
+			println("in tunnel_open client is 0==========")
 			if *localAddr != "socks5" {
 				s_conn, err := net.DialTimeout("tcp", *localAddr, 10*time.Second)
 				if err != nil {
@@ -1255,6 +1257,7 @@ func (sc *Client) Run(index int, specPipe string) {
 		return
 	}
 	go func() {
+		println("in multi pipe support RUN--------")
 		callback := func(conn net.Conn, sessionId, action, content string) {
 			if sc != nil {
 				sc.OnTunnelRecv(conn, sessionId, action, content)
@@ -1283,7 +1286,7 @@ func (sc *Client) RemoteAddr() net.Addr               { return nil }
 func (sc *Client) SetDeadline(t time.Time) error      { return nil }
 func (sc *Client) SetReadDeadline(t time.Time) error  { return nil }
 func (sc *Client) SetWriteDeadline(t time.Time) error { return nil }
-// 作为server的client对本地的服务进行中转
+// 接收本地请求，所以方法名叫local server，其实是作为client的client开启的中转服务
 func handleLocalPortResponse(client *Client, id string) {
 	sessionId := id
 	if !client.bUdp {
@@ -1307,6 +1310,7 @@ func handleLocalPortResponse(client *Client, id string) {
 		if err != nil {
 			break
 		}
+		println("in handleLocalPortResponse read:", string(arr[0:size]))
 		// 转发给pipe
 		if common.Write(session.pipe, id, "tunnel_msg_s", string(arr[0:size])) != nil {
 			break
@@ -1318,7 +1322,7 @@ func handleLocalPortResponse(client *Client, id string) {
 		common.Write(session.pipe, id, "tunnel_close_s", "")
 	}
 }
-// 接收本地请求，所以方法名叫local server，其实是作为client的client开启的中转服务
+// 作为server的client对本地的服务进行中转
 func handleLocalServerResponse(client *Client, sessionId string) {
 	session := client.getSession(sessionId)
 	if session == nil {
@@ -1339,7 +1343,7 @@ func handleLocalServerResponse(client *Client, sessionId string) {
 			println("in handleLocalServerResponse reader.Read error:", err.Error())
 			break
 		}
-		println("common.Write sessionId:", sessionId, ";tunnel_msg_c")
+		println("common.Write sessionId:", sessionId, ";tunnel_msg_c, content:", string(arr[0:size]))
 		err = common.Write(pipe, sessionId, "tunnel_msg_c", string(arr[0:size]))
 		if err != nil {
 			println("in handleLocalServerResponse common.Write error:", err.Error())
